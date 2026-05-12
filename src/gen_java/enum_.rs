@@ -1,0 +1,1 @@
+// Enum code generation.

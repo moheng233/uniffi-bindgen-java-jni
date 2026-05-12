@@ -1,0 +1,11 @@
+[general]
+# Template directories relative to CARGO_MANIFEST_DIR
+dirs = ["src/templates"]
+
+[[syntax]]
+name = "java"
+ext = "java"
+
+[[syntax]]
+name = "rs"
+ext = "rs"
