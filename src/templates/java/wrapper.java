@@ -14,13 +14,17 @@ import {{ import }};
 {% if docstring.is_some() %}
 /** {{ docstring.as_ref().unwrap() }} */
 {% endif %}
+@SuppressWarnings({"unused", "deprecation"})
 public final class {{ name }} {
 
     static {
         System.loadLibrary("{{ cdylib_name }}");
     }
 
-    // --- Native method declarations ---
+    // ---------------------------------------------------------------
+    // Native method declarations
+    // ---------------------------------------------------------------
+
     {% for ffi in ffi_definitions %}
     {%- match ffi %}
     {%- when FfiDefinition::RustFunction(func) %}
@@ -29,33 +33,75 @@ public final class {{ name }} {
         {{ arg.ty|ffi_type_java }} {{ arg.name }}{% if !loop.last %}, {% endif %}
         {%- endfor -%}
     );
-    {%- when FfiDefinition::CallbackFunction(_cb) %}
-    // Callback: {{ _cb.name }}
+    {%- when FfiDefinition::CallbackFunction(cb) %}
+    // Callback type: {{ cb.name }} (handled via JNI callback bridge)
     {%- endmatch %}
     {% endfor %}
 
-    // --- Top-level functions ---
+    // Helper native methods
+    private static native java.nio.ByteBuffer directBufferFromHandle(long handle, int len);
+    private static native void nativeRustBufferFree(long handle);
+
+    // ---------------------------------------------------------------
+    // Shared utility classes
+    // ---------------------------------------------------------------
+
+    {% include "java/RustBuffer.java" %}
+
+    {% include "java/RustBufferStream.java" %}
+
+    {% include "java/HandleMap.java" %}
+
+    {% include "java/FfiConverter.java" %}
+
+    {% include "java/Helpers.java" %}
+
+    // ---------------------------------------------------------------
+    // Top-level functions
+    // ---------------------------------------------------------------
+
     {% for func in functions %}
-    public static {% match func.return_type %}{% when Some with (ret) %}{{ ret|java_type }}{% when None %}void{% endmatch %} {{ func.java_name }}(
-        {%- for arg in func.arguments -%}
-        {{ arg.ty|java_type }} {{ arg.java_name }}{% if !loop.last %}, {% endif %}
-        {%- endfor -%}
-    ) {
-        // TODO: call native method and handle lift/lower
-    }
+    {%- include "java/Function.java" %}
     {% endfor %}
 
-    // --- Type definitions ---
+    // ---------------------------------------------------------------
+    // Type definitions
+    // ---------------------------------------------------------------
+
     {% for td in type_definitions %}
     {%- match td %}
     {%- when TypeDefinition::Object(obj) %}
-    // Object: {{ obj.java_name }}
+    {%- match obj.imp %}
+    {%- when ObjectImpl::Struct %}
+    {% include "java/Object.java" %}
+    {%- when ObjectImpl::Trait %}
+    {% include "java/Interface.java" %}
+    {%- when ObjectImpl::CallbackTrait %}
+    // CallbackTrait object: {{ obj.java_name }} (Rust-implemented trait)
+    {% include "java/Interface.java" %}
+    {%- endmatch %}
     {%- when TypeDefinition::Record(rec) %}
-    // Record: {{ rec.java_name }}
+    {% include "java/Record.java" %}
     {%- when TypeDefinition::Enum(e) %}
-    // Enum: {{ e.java_name }}
+    {% include "java/Enum.java" %}
     {%- when TypeDefinition::CallbackInterface(cbi) %}
-    // CallbackInterface: {{ cbi.java_name }}
+    {% include "java/CallbackInterface.java" %}
+    {% include "java/CallbackInterfaceImpl.java" %}
     {%- endmatch %}
     {% endfor %}
-}
+
+    // ---------------------------------------------------------------
+    // Custom exception type
+    // ---------------------------------------------------------------
+
+    /**
+     * Exception thrown when a native UniFFI call fails.
+     */
+    public static final class {{ name }}Exception extends RuntimeException {
+        public {{ name }}Exception(String message) {
+            super(message);
+        }
+        public {{ name }}Exception(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }

@@ -188,6 +188,13 @@ pub struct VTableMethod {
 #[derive(Debug, Clone)]
 pub struct RustFfiFunctionName(pub String);
 
+impl RustFfiFunctionName {
+    /// Return the function name string.
+    pub fn name(&self) -> &str {
+        &self.0
+    }
+}
+
 /// An FFI callback function definition.
 #[derive(Debug, Clone)]
 pub struct FfiCallbackFunction {

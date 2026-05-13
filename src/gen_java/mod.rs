@@ -28,11 +28,10 @@ pub fn generate_java_code(
     fs::create_dir_all(out_dir)?;
 
     for module in root.modules.values() {
-        if let Some(filter) = crate_filter {
-            if module.crate_name != filter {
+        if let Some(filter) = crate_filter
+            && module.crate_name != filter {
                 continue;
             }
-        }
 
         // Generate the wrapper file for this module
         let rendered = module.render().map_err(|e| {

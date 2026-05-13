@@ -5,7 +5,9 @@ dirs = ["src/templates"]
 [[syntax]]
 name = "java"
 ext = "java"
+escaper = "none"
 
 [[syntax]]
 name = "rs"
 ext = "rs"
+escaper = "none"

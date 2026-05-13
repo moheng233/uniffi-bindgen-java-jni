@@ -29,11 +29,10 @@ pub fn generate_java_jni_bindings(
     // Phase 1: Load metadata and create the initial IR
     let metadata = loader.load_metadata(source)?;
 
-    if let Some(crate_name) = crate_filter {
-        if !metadata.contains_key(crate_name) {
+    if let Some(crate_name) = crate_filter
+        && !metadata.contains_key(crate_name) {
             anyhow::bail!("No UniFFI metadata found for crate {crate_name}");
         }
-    }
 
     let initial_root = loader.load_pipeline_initial_root(source, metadata)?;
 

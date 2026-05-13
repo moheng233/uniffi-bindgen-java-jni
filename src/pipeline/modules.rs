@@ -13,21 +13,21 @@ pub fn convert_namespace(
     let package_name = config.package_name(&namespace.name);
     let cdylib_name = config.cdylib_name(&namespace.name);
 
-    let mut imports: Vec<String> = Vec::new();
-    // Always need these imports for JNI bindings
-    imports.push("java.nio.ByteBuffer".to_string());
-    imports.push("java.nio.ByteOrder".to_string());
+    let imports: Vec<String> = vec![
+        "java.nio.ByteBuffer".to_string(),
+        "java.nio.ByteOrder".to_string(),
+    ];
 
     let functions: Vec<Function> = namespace
         .functions
         .iter()
-        .map(|f| convert_function(f))
+        .map(convert_function)
         .collect::<Result<Vec<_>>>()?;
 
     let type_definitions: Vec<TypeDefinition> = namespace
         .type_definitions
         .iter()
-        .map(|td| convert_type_definition(td))
+        .map(convert_type_definition)
         .collect::<Result<Vec<_>>>()?;
 
     let ffi_definitions: Vec<FfiDefinition> = namespace
@@ -66,10 +66,10 @@ fn convert_function(func: &general::Function) -> Result<Function> {
         arguments: func
             .inputs
             .iter()
-            .map(|a| convert_argument(a))
+            .map(convert_argument)
             .collect::<Result<Vec<_>>>()?,
-        return_type: func.return_type.as_ref().map(|t| convert_type(t)),
-        throws: func.throws.as_ref().map(|t| convert_type(t)),
+        return_type: func.return_type.as_ref().map(convert_type),
+        throws: func.throws.as_ref().map(convert_type),
         docstring: func.docstring.clone(),
         ffi_func: RustFfiFunctionName(func.callable.ffi_func.0.clone()),
         checksum: func.checksum,
@@ -83,7 +83,7 @@ fn convert_argument(arg: &general::Argument) -> Result<Argument> {
         java_name,
         ty: convert_type_node(&arg.ty),
         optional: arg.optional,
-        default: arg.default.as_ref().map(|d| convert_default(d)),
+        default: arg.default.as_ref().map(convert_default),
     })
 }
 
@@ -182,9 +182,9 @@ fn convert_type_definition(td: &general::TypeDefinition) -> Result<TypeDefinitio
                             arguments: c
                                 .inputs
                                 .iter()
-                                .map(|a| convert_argument(a))
+                                .map(convert_argument)
                                 .collect::<Result<Vec<_>>>()?,
-                            throws: c.throws.as_ref().map(|t| convert_type(t)),
+                            throws: c.throws.as_ref().map(convert_type),
                             ffi_func: RustFfiFunctionName(c.callable.ffi_func.0.clone()),
                             checksum: c.checksum,
                         })
@@ -201,10 +201,10 @@ fn convert_type_definition(td: &general::TypeDefinition) -> Result<TypeDefinitio
                             arguments: m
                                 .inputs
                                 .iter()
-                                .map(|a| convert_argument(a))
+                                .map(convert_argument)
                                 .collect::<Result<Vec<_>>>()?,
-                            return_type: m.return_type.as_ref().map(|t| convert_type(t)),
-                            throws: m.throws.as_ref().map(|t| convert_type(t)),
+                            return_type: m.return_type.as_ref().map(convert_type),
+                            throws: m.throws.as_ref().map(convert_type),
                             ffi_func: RustFfiFunctionName(m.callable.ffi_func.0.clone()),
                             checksum: m.checksum,
                         })
@@ -226,7 +226,7 @@ fn convert_type_definition(td: &general::TypeDefinition) -> Result<TypeDefinitio
                         name: f.name.clone(),
                         java_name: to_lower_camel_case(&f.name),
                         ty: convert_type_node(&f.ty),
-                        default: f.default.as_ref().map(|d| convert_default(d)),
+                        default: f.default.as_ref().map(convert_default),
                     })
                 })
                 .collect::<Result<Vec<_>>>()?,
@@ -250,7 +250,7 @@ fn convert_type_definition(td: &general::TypeDefinition) -> Result<TypeDefinitio
                                     name: f.name.clone(),
                                     java_name: to_lower_camel_case(&f.name),
                                     ty: convert_type_node(&f.ty),
-                                    default: f.default.as_ref().map(|d| convert_default(d)),
+                                    default: f.default.as_ref().map(convert_default),
                                 })
                             })
                             .collect::<Result<Vec<_>>>()?,
@@ -276,10 +276,10 @@ fn convert_type_definition(td: &general::TypeDefinition) -> Result<TypeDefinitio
                             arguments: m
                                 .inputs
                                 .iter()
-                                .map(|a| convert_argument(a))
+                                .map(convert_argument)
                                 .collect::<Result<Vec<_>>>()?,
-                            return_type: m.return_type.as_ref().map(|t| convert_type(t)),
-                            throws: m.throws.as_ref().map(|t| convert_type(t)),
+                            return_type: m.return_type.as_ref().map(convert_type),
+                            throws: m.throws.as_ref().map(convert_type),
                             ffi_func: RustFfiFunctionName(m.callable.ffi_func.0.clone()),
                             checksum: m.checksum,
                         })
@@ -333,7 +333,7 @@ fn convert_ffi_definition(
                         })
                     })
                     .collect::<Result<Vec<_>>>()?,
-                return_type: ft.return_type.ty.as_ref().map(|t| convert_ffi_type_node(t)),
+                return_type: ft.return_type.ty.as_ref().map(convert_ffi_type_node),
                 has_rust_call_status_arg: ft.has_rust_call_status_arg,
             }))
         }
@@ -362,7 +362,7 @@ fn convert_ffi_definition(
                         })
                     })
                     .collect::<Result<Vec<_>>>()?,
-                return_type: func.return_type.ty.as_ref().map(|t| convert_ffi_type_node(t)),
+                return_type: func.return_type.ty.as_ref().map(convert_ffi_type_node),
                 has_rust_call_status_arg: func.has_rust_call_status_arg,
             }))
         }
