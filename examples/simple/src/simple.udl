@@ -1,0 +1,67 @@
+/// A simple calculator example for uniffi-bindgen-java-jni.
+///
+/// This UDL demonstrates:
+/// - Top-level functions
+/// - Records (dictionary)
+/// - Enums (flat and with data)
+/// - Objects (interface with constructor and methods)
+/// - Callback interfaces
+
+namespace simple {
+    /// Add two unsigned 32-bit integers.
+    u32 add(u32 a, u32 b);
+
+    /// Multiply two unsigned 32-bit integers.
+    u32 multiply(u32 a, u32 b);
+
+    /// Greet someone by name.
+    string greet(string name);
+};
+
+/// A data record holding a value and a label.
+dictionary MyData {
+    u32 value;
+    string label;
+};
+
+/// A simple flat enum representing colors.
+enum Color {
+    "Red",
+    "Green",
+    "Blue",
+};
+
+/// An enum with associated data.
+[Enum]
+interface Shape {
+    Circle(f64 radius);
+    Rectangle(f64 width, f64 height);
+    Point();
+};
+
+/// A calculator object that maintains state.
+interface Calculator {
+    /// Create a new calculator with an initial value.
+    constructor(u32 initial);
+
+    /// Add a value to the calculator's current value.
+    u32 add(u32 value);
+
+    /// Subtract a value from the calculator's current value.
+    u32 subtract(u32 value);
+
+    /// Get the current value.
+    u32 get_value();
+
+    /// Process some data and return the result.
+    MyData process_data(MyData input);
+};
+
+/// A callback interface for reporting calculator events.
+callback interface CalculatorListener {
+    /// Called when a calculation is performed.
+    void on_calculation(string operation, u32 value);
+
+    /// Called when the calculator is reset.
+    void on_reset();
+};

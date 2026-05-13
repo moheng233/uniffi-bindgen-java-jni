@@ -7,6 +7,7 @@ mod jni_callback;
 {% endif %}
 
 #[no_mangle]
+#[allow(unused_variables)]
 pub extern "system" fn JNI_OnLoad(
     vm: jni::JavaVM,
     _reserved: *mut std::ffi::c_void,

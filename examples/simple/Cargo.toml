@@ -1,0 +1,13 @@
+[package]
+name = "uniffi-example-simple"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+uniffi = { version = "0.31.1", features = ["cli"] }
+
+[build-dependencies]
+uniffi_build = { version = "0.31.1", features = ["builtin-bindgen"] }

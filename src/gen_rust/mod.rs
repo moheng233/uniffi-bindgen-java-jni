@@ -39,7 +39,8 @@ struct BridgeFunction {
 /// Template for jni_bridge.rs
 #[derive(Template)]
 #[template(escape = "none", path = "rust/jni_bridge.rs")]
-struct JniBridgeTemplate {
+struct JniBridgeTemplate<'a> {
+    main_crate_name: &'a str,
     functions: Vec<BridgeFunction>,
 }
 
@@ -73,24 +74,42 @@ pub fn generate_rust_glue(
     let src_dir = out_dir.join("src");
     fs::create_dir_all(&src_dir)?;
 
-    // Generate Cargo.toml
-    let cargo_toml = cargo_toml::generate_cargo_toml(glue_crate_name, root, main_crate_path);
-    fs::write(&cargo_toml_path, cargo_toml)?;
+    // Convert main_crate_path to a path relative to out_dir
+    let main_crate_rel: Option<camino::Utf8PathBuf> = match main_crate_path {
+        Some(p) => {
+            let p_abs = canonicalize_stripped(p)?;
+            let out_abs = canonicalize_stripped(out_dir)?;
+            // Use forward slashes for TOML compatibility
+            let rel = path_relative_to(&p_abs, &out_abs);
+            Some(camino::Utf8PathBuf::from(rel.as_str().replace('\\', "/")))
+        }
+        None => None,
+    };
+
+    // Generate Cargo.toml (trim trailing whitespace to avoid TOML parse errors)
+    let mut cargo_toml = cargo_toml::generate_cargo_toml(
+        glue_crate_name,
+        root,
+        main_crate_rel.as_deref(),
+    );
+    // Normalize line endings and trim trailing whitespace
+    cargo_toml = cargo_toml.trim_end().to_string() + "\n";
+    fs::write(&cargo_toml_path, &cargo_toml)?;
 
     // Generate lib.rs
-    let lib_rs = generate_lib_rs(root, crate_filter)?;
+    let lib_rs = normalize_content(&generate_lib_rs(root, crate_filter)?);
     fs::write(src_dir.join("lib.rs"), lib_rs)?;
 
     // Generate jni_bridge.rs
-    let jni_bridge = generate_jni_bridge(root, crate_filter)?;
+    let jni_bridge = normalize_content(&generate_jni_bridge(root, crate_filter)?);
     fs::write(src_dir.join("jni_bridge.rs"), jni_bridge)?;
 
     // Generate jni_types.rs
-    let jni_types_rs = jni_types::generate_jni_types();
+    let jni_types_rs = normalize_content(&jni_types::generate_jni_types());
     fs::write(src_dir.join("jni_types.rs"), jni_types_rs)?;
 
     // Generate jni_callback.rs
-    let jni_callback = callback_gen::generate_jni_callback(root, crate_filter)?;
+    let jni_callback = normalize_content(&callback_gen::generate_jni_callback(root, crate_filter)?);
     fs::write(src_dir.join("jni_callback.rs"), jni_callback)?;
 
     println!("Generated Rust glue crate at: {}", out_dir);
@@ -146,6 +165,13 @@ fn generate_jni_bridge(root: &Root, crate_filter: Option<&str>) -> Result<String
 
         for ffi in &module.ffi_definitions {
             if let FfiDefinition::RustFunction(func) = ffi {
+                // Skip future-related FFI functions if the module has no async functions
+                if module.async_fn_count == 0
+                    && (func.name.contains("rust_future_") || func.name.contains("rustfuture"))
+                {
+                    continue;
+                }
+
                 let args: Vec<BridgeArg> = func
                     .arguments
                     .iter()
@@ -176,8 +202,20 @@ fn generate_jni_bridge(root: &Root, crate_filter: Option<&str>) -> Result<String
         }
     }
 
-    let tmpl = JniBridgeTemplate { functions };
+    let tmpl = JniBridgeTemplate {
+        main_crate_name: get_main_crate_name(root),
+        functions,
+    };
     Ok(tmpl.render()?)
+}
+
+/// Get the main crate name (hyphens replaced with underscores for Rust identifiers).
+fn get_main_crate_name(root: &Root) -> &str {
+    root.modules
+        .values()
+        .next()
+        .map(|m| m.crate_name.as_str())
+        .unwrap_or("main_crate")
 }
 
 /// Map an FFI type to its Rust type name for use in JNI bridge signatures.
@@ -204,6 +242,58 @@ fn ffi_type_rust_name(ty: &FfiType) -> String {
         FfiType::Struct(name) => name.clone(),
         FfiType::Callback(_) => "jlong".into(),
         FfiType::Reference(_) => "jlong".into(),
+    }
+}
+
+/// Canonicalize a path, stripping the Windows `\\?\` prefix.
+fn canonicalize_stripped(path: &camino::Utf8Path) -> Result<camino::Utf8PathBuf> {
+    let abs = path.canonicalize_utf8()?;
+    // Strip \\?\ prefix on Windows
+    if let Ok(rel) = abs.strip_prefix(r"\\?\") {
+        Ok(rel.into())
+    } else {
+        Ok(abs)
+    }
+}
+
+/// Compute a relative path from `base` to `target`.
+fn path_relative_to(target: &camino::Utf8Path, base: &camino::Utf8Path) -> camino::Utf8PathBuf {
+    let mut target_components = target.components().peekable();
+    let mut base_components = base.components().peekable();
+
+    // Skip common prefix
+    while let (Some(tc), Some(bc)) = (target_components.peek(), base_components.peek()) {
+        if tc == bc {
+            target_components.next();
+            base_components.next();
+        } else {
+            break;
+        }
+    }
+
+    // Add .. for each remaining component in base
+    let mut result = camino::Utf8PathBuf::new();
+    for _ in base_components {
+        result.push("..");
+    }
+    // Add remaining target components
+    for c in target_components {
+        result.push(c.as_str());
+    }
+
+    if result.as_str().is_empty() {
+        result.push(".");
+    }
+    result
+}
+
+/// Normalize generated content: trim trailing whitespace and ensure a single trailing newline.
+fn normalize_content(content: &str) -> String {
+    let trimmed = content.trim_end();
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", trimmed)
     }
 }
 

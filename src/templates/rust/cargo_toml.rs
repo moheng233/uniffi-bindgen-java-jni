@@ -8,12 +8,12 @@ crate-type = ["cdylib"]
 
 [dependencies]
 jni = "0.21"
-uniffi = { version = "0.31", features = ["builtin-bindgen"] }
+uniffi = "0.31"
 {%- if let Some(path) = main_crate_path %}
 # Main crate dependency (path provided via --main-crate-path)
-main_crate = { path = "{{ path }}" }
+{{ main_crate_name }} = { path = "{{ path }}" }
 {%- else %}
 # Add your main crate dependency here:
-# main_crate = { path = "../your_crate" }
+# your_crate = { path = "../your_crate" }
 {%- endif %}
 

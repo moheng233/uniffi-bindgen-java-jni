@@ -34,13 +34,13 @@ pub fn convert_namespace(
     let type_definitions: Vec<TypeDefinition> = namespace
         .type_definitions
         .iter()
-        .map(|td| convert_type_definition(td, &class_name))
+        .filter_map(|td| convert_type_definition(td, &class_name).transpose())
         .collect::<Result<Vec<_>>>()?;
 
     let ffi_definitions: Vec<FfiDefinition> = namespace
         .ffi_definitions
         .iter()
-        .map(|ffi| convert_ffi_definition(ffi, &package_name, &namespace.name))
+        .filter_map(|ffi| convert_ffi_definition(ffi, &package_name, &namespace.name).transpose())
         .collect::<Result<Vec<_>>>()?;
 
     let async_fn_count = functions.iter().filter(|f| f.is_async).count();
@@ -182,7 +182,7 @@ fn convert_literal(_lit: &general::Literal) -> Literal {
     Literal::None
 }
 
-fn convert_type_definition(td: &general::TypeDefinition, class_name: &str) -> Result<TypeDefinition> {
+fn convert_type_definition(td: &general::TypeDefinition, class_name: &str) -> Result<Option<TypeDefinition>> {
     match td {
         general::TypeDefinition::Interface(int) => {
             let imp = match int.imp {
@@ -239,7 +239,7 @@ fn convert_type_definition(td: &general::TypeDefinition, class_name: &str) -> Re
                 method.body = body_gen::generate_method_body(method, class_name);
             }
 
-            Ok(TypeDefinition::Object(Object {
+            Ok(Some(TypeDefinition::Object(Object {
                 name: int.name.clone(),
                 java_name: obj_java_name,
                 imp,
@@ -248,7 +248,7 @@ fn convert_type_definition(td: &general::TypeDefinition, class_name: &str) -> Re
                 methods,
                 ffi_func_clone: RustFfiFunctionName(int.ffi_func_clone.0.clone()),
                 ffi_func_free: RustFfiFunctionName(int.ffi_func_free.0.clone()),
-            }))
+            })))
         }
         general::TypeDefinition::Record(rec) => {
             let java_name = to_upper_camel_case(&rec.name);
@@ -274,14 +274,14 @@ fn convert_type_definition(td: &general::TypeDefinition, class_name: &str) -> Re
             };
             let write_body = body_gen::generate_record_write_body(&temp_record);
             let read_body = body_gen::generate_record_read_body(&temp_record);
-            Ok(TypeDefinition::Record(Record {
+            Ok(Some(TypeDefinition::Record(Record {
                 name: rec.name.clone(),
                 java_name,
                 docstring: rec.docstring.as_ref().map(|d| d.to_string()),
                 fields,
                 write_body,
                 read_body,
-            }))
+            })))
         }
         general::TypeDefinition::Enum(e) => {
             let java_name = to_upper_camel_case(&e.name);
@@ -319,7 +319,7 @@ fn convert_type_definition(td: &general::TypeDefinition, class_name: &str) -> Re
             };
             let write_body = body_gen::generate_enum_write_body(&temp_enum);
             let read_body = body_gen::generate_enum_read_body(&temp_enum);
-            Ok(TypeDefinition::Enum(Enum {
+            Ok(Some(TypeDefinition::Enum(Enum {
                 name: e.name.clone(),
                 java_name,
                 docstring: e.docstring.as_ref().map(|d| d.to_string()),
@@ -327,10 +327,10 @@ fn convert_type_definition(td: &general::TypeDefinition, class_name: &str) -> Re
                 is_flat: e.is_flat,
                 write_body,
                 read_body,
-            }))
+            })))
         }
         general::TypeDefinition::CallbackInterface(cbi) => {
-            Ok(TypeDefinition::CallbackInterface(CallbackInterface {
+            Ok(Some(TypeDefinition::CallbackInterface(CallbackInterface {
                 name: cbi.name.clone(),
                 java_name: to_upper_camel_case(&cbi.name),
                 docstring: cbi.docstring.as_ref().map(|d| d.to_string()),
@@ -357,29 +357,27 @@ fn convert_type_definition(td: &general::TypeDefinition, class_name: &str) -> Re
                     .collect::<Result<Vec<_>>>()?,
                 ffi_init_callback: RustFfiFunctionName(cbi.vtable.init_fn.0.clone()),
                 vtable: None, // TODO: generate VTable
-            }))
+            })))
         }
         general::TypeDefinition::Simple(_ty_node) => {
-            // Simple types don't generate Java type definitions
-            Err(anyhow::anyhow!("Simple type definition not expected here"))
+            // Simple type aliases (e.g., Timestamp, Duration) don't need
+            // their own Java type definitions — they are inlined where used.
+            Ok(None)
         }
         general::TypeDefinition::Optional(_) => {
-            // Compound types don't generate Java type definitions
-            Err(anyhow::anyhow!("Optional type definition not expected here"))
+            Ok(None)
         }
         general::TypeDefinition::Sequence(_) => {
-            Err(anyhow::anyhow!("Sequence type definition not expected here"))
+            Ok(None)
         }
         general::TypeDefinition::Map(_) => {
-            Err(anyhow::anyhow!("Map type definition not expected here"))
+            Ok(None)
         }
         general::TypeDefinition::Custom(_) => {
-            // Custom types are handled by the FfiConverter
-            Err(anyhow::anyhow!("Custom type definition not expected here"))
+            Ok(None)
         }
         general::TypeDefinition::External(_) => {
-            // External types are handled separately
-            Err(anyhow::anyhow!("External type definition not expected here"))
+            Ok(None)
         }
     }
 }
@@ -388,10 +386,10 @@ fn convert_ffi_definition(
     ffi: &general::FfiDefinition,
     _package_name: &str,
     _namespace: &str,
-) -> Result<FfiDefinition> {
+) -> Result<Option<FfiDefinition>> {
     match ffi {
         general::FfiDefinition::FunctionType(ft) => {
-            Ok(FfiDefinition::CallbackFunction(FfiCallbackFunction {
+            Ok(Some(FfiDefinition::CallbackFunction(FfiCallbackFunction {
                 name: ft.name.0.clone(),
                 arguments: ft
                     .arguments
@@ -405,12 +403,12 @@ fn convert_ffi_definition(
                     .collect::<Result<Vec<_>>>()?,
                 return_type: ft.return_type.ty.as_ref().map(convert_ffi_type_node),
                 has_rust_call_status_arg: ft.has_rust_call_status_arg,
-            }))
+            })))
         }
         general::FfiDefinition::Struct(_st) => {
             // FfiStruct definitions (e.g., VTable structs) are handled
-            // by the callback interface code generation
-            Err(anyhow::anyhow!("FFI struct definition handled by callback codegen"))
+            // by the callback interface code generation; skip here.
+            Ok(None)
         }
         general::FfiDefinition::RustFunction(func) => {
             let jni_name = format!(
@@ -419,7 +417,7 @@ fn convert_ffi_definition(
                 to_upper_camel_case(_namespace),
                 func.name.0
             );
-            Ok(FfiDefinition::RustFunction(FfiFunction {
+            Ok(Some(FfiDefinition::RustFunction(FfiFunction {
                 name: func.name.0.clone(),
                 jni_name,
                 arguments: func
@@ -434,7 +432,7 @@ fn convert_ffi_definition(
                     .collect::<Result<Vec<_>>>()?,
                 return_type: func.return_type.ty.as_ref().map(convert_ffi_type_node),
                 has_rust_call_status_arg: func.has_rust_call_status_arg,
-            }))
+            })))
         }
     }
 }

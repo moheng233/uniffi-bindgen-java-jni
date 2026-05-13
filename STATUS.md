@@ -3,6 +3,7 @@
 **日期**: 2026-05-13
 **编译**: ✅ 零错误零警告（clippy clean）
 **Phase 1-7**: ✅ | **测试**: ✅ 44 个测试全部通过
+**Phase 8（使用案例）**: ✅ | **产物**: ✅ 生成的 Java + Rust 胶水代码均可编译
 
 ---
 
@@ -164,11 +165,12 @@ D:\packages\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\
 
 ## 下一步工作建议（按优先级）
 
-1. **使用案例** — 编写 example crate（含 cdylib + UDL/ProcMacro），运行完整 pipeline 生成 Java + Rust 胶水代码，验证产物可编译
-2. **Callback Interface VTable 生成** — 双向 JNI 调用（VTable dispatch）
-3. **填充 stub 文件** — 按需激活 16 个 pipeline/gen_java stub 文件
-4. **端到端测试** — fixture crate + Java 代码 + Gradle 编译
-5. **实现 RustCallStatus 的完整 JNI 桥接** — jni_bridge.rs 中错误处理润色
+1. **JNI Bridge 实现** — 当前 `jni_bridge.rs` 使用 `unimplemented!()` stub，需要实现真实的 JNI→FFI 类型转换和函数调用
+2. **RustBuffer ↔ JNI ByteBuffer 转换** — `jni_types.rs` 中 RustBuffer 转换函数需要访问 uniffi 内部 API 或 FFI 函数
+3. **Callback Interface VTable 生成** — 双向 JNI 调用（VTable dispatch）
+4. **填充 stub 文件** — 按需激活 16 个 pipeline/gen_java stub 文件
+5. **端到端测试** — fixture crate + Java 代码 + Gradle 编译
+6. **实现 RustCallStatus 的完整 JNI 桥接** — jni_bridge.rs 中错误处理润色
 
 ---
 
@@ -187,3 +189,10 @@ D:\packages\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\
 - **Argument 含 `lower_code` 和 `native_expr`** — 在 `convert_argument()` 中调用 `body_gen` 预计算
 - **Record/Enum 有 `write_body`/`read_body`** — 序列化逻辑在 Rust 端预计算
 - **⚠️ TODO: 减少预计算字符串依赖** — 当前 `body_gen.rs` 将大量 Java 代码拼接为字符串再注入模板，导致代码风格割裂、难以维护。理想方案是 Askama 模板自行处理类型匹配和代码生成，但受限于 Askama 对 tuple variant (如 `TypeNode::Optional(Box<TypeNode>)`) 和嵌套 match+filter 的支持不足。未来可选方向：为 Java 节点实现自定义 `#[derive(Template)]` render 方法；
+- **使用案例位于 `examples/simple/`** — 含 cdylib + UDL，运行 pipeline 生成 Java + Rust 胶水代码，均通过编译验证
+- **TypeDefinition::Simple/Optional/Sequence/Map/Custom/External 在 convert_type_definition 中返回 `Ok(None)`** — 这些类型不需要独立 Java 类定义
+- **FfiDefinition::Struct 在 convert_ffi_definition 中返回 `Ok(None)`** — VTable struct 由 callback 代码生成处理
+- **模板渲染产物末尾换行符问题** — 通过 `normalize_content()` 函数修剪尾部空白，确保 TOML 文件和 Rust 文件末尾格式正确
+- **Cargo.toml 路径** — 主 crate 依赖路径使用正斜杠（TOML 兼容），Rust `use` 语句使用下划线形式的 crate 名
+- **jni_bridge.rs 当前为 stub 实现** — 所有 JNI 函数体为 `unimplemented!()`，待后续实现真实的 FFI 调用
+- **future 函数过滤** — 当 `async_fn_count == 0` 时，跳过 `rust_future_*` 相关的 FFI 桥接函数生成
