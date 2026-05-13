@@ -60,7 +60,7 @@ fn generate_lib_rs(root: &Root, crate_filter: Option<&str>) -> Result<String> {
     out.push_str("mod jni_callback;\n\n");
 
     // Check for callback interfaces
-    let has_callbacks = root.modules.values().any(|m| {
+    let _has_callbacks = root.modules.values().any(|m| {
         if let Some(filter) = crate_filter {
             if m.crate_name != filter {
                 return false;

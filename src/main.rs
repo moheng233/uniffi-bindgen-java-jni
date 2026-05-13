@@ -1,6 +1,6 @@
 use camino::Utf8PathBuf;
 use clap::Parser;
-use uniffi_bindgen::{BindgenLoader, BindgenPaths, GlobalConfig};
+use uniffi_bindgen::{BindgenLoader, BindgenPaths};
 
 /// Java JNI bindings generator for UniFFI.
 ///
@@ -39,24 +39,15 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     // Setup paths
-    let mut paths = BindgenPaths::default();
+    let paths = BindgenPaths::default();
 
-    #[cfg(feature = "cargo-metadata")]
-    paths.add_cargo_metadata_layer(cli.metadata_no_deps)?;
-
-    // Load global config
-    let global_config = if let Some(ref config_path) = cli.config {
-        let (config, crate_roots_layer) = GlobalConfig::from_file(config_path)?;
-        if let Some(layer) = crate_roots_layer {
-            paths.add_layer(layer);
-        }
-        config
-    } else {
-        GlobalConfig::default()
-    };
+    // Load config if provided
+    if let Some(ref _config_path) = cli.config {
+        // TODO: Parse config and add crate-roots layer
+    }
 
     // Create loader
-    let loader = BindgenLoader::new(paths, global_config);
+    let loader = BindgenLoader::new(paths);
 
     // Generate bindings
     uniffi_bindgen_java_jna::generate_java_jni_bindings(

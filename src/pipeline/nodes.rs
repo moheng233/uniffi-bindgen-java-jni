@@ -67,7 +67,6 @@ pub struct Argument {
     pub name: String,
     pub java_name: String,
     pub ty: TypeNode,
-    pub by_ref: bool,
     pub optional: bool,
     pub default: Option<DefaultValue>,
 }
