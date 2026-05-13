@@ -50,13 +50,11 @@
 
         // --- Serialization ---
         public ByteBuffer write() {
-            // TODO: write variant index + fields
-            throw new RuntimeException("TODO: implement Enum.write for {{ e.name }}");
+            {{ e.write_body }}
         }
 
         public static {{ e.java_name }} read(ByteBuffer buf) {
-            // TODO: read variant index + fields
-            throw new RuntimeException("TODO: implement Enum.read for {{ e.name }}");
+            {{ e.read_body }}
         }
     }
 {%- endif -%}

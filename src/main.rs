@@ -2,6 +2,8 @@ use camino::Utf8PathBuf;
 use clap::Parser;
 use uniffi_bindgen::{BindgenLoader, BindgenPaths};
 
+use uniffi_bindgen_java_jna::pipeline::config::{self, JavaConfig};
+
 /// Java JNI bindings generator for UniFFI.
 ///
 /// Generates both Java source files (with native method declarations)
@@ -33,18 +35,29 @@ struct Cli {
     /// Exclude dependencies when running cargo metadata
     #[arg(long)]
     metadata_no_deps: bool,
+
+    /// Path to the main crate (for Rust glue Cargo.toml dependency)
+    #[arg(long = "main-crate-path")]
+    main_crate_path: Option<Utf8PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     // Setup paths
-    let paths = BindgenPaths::default();
+    let mut paths = BindgenPaths::default();
 
-    // Load config if provided
-    if let Some(ref _config_path) = cli.config {
-        // TODO: Parse config and add crate-roots layer
-    }
+    // Load and parse Java config
+    let java_config = if let Some(ref config_path) = cli.config {
+        // Add as a config override layer so load_pipeline_initial_root can see it
+        paths.add_config_override_layer(config_path.clone());
+
+        let contents = fs_err::read_to_string(config_path)?;
+        let root_toml: toml::Value = toml::from_str(&contents)?;
+        config::parse_java_config(&root_toml)?
+    } else {
+        JavaConfig::default()
+    };
 
     // Create loader
     let loader = BindgenLoader::new(paths);
@@ -56,6 +69,8 @@ fn main() -> anyhow::Result<()> {
         &cli.java_out_dir,
         &cli.rust_out_dir,
         cli.crate_filter.as_deref(),
+        &java_config,
+        cli.main_crate_path.as_deref(),
     )?;
 
     println!("Java JNI bindings generated successfully!");

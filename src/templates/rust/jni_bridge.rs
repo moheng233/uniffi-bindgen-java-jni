@@ -14,16 +14,51 @@ pub extern "system" fn {{ func.jni_name }}(
     {%- for arg in func.arguments %}
     {{ arg.name }}: {{ arg.rust_type }},
     {%- endfor %}
+    {%- if func.has_rust_call_status %}
+    status: jobject,
+    {%- endif %}
 ) {% match func.return_type %}{% when Some with (ret) %}-> {{ ret }}{% when None %}{% endmatch %} {
-    // TODO: {{ func.comment }}
-    {% if func.has_rust_call_status %}
-    uniffi::ffi::rust_call(|status| {
-        // call uniffi FFI function and handle status
-        todo!("implement bridge for {}", "{{ func.name }}");
+    {%- if func.has_rust_call_status %}
+    uniffi::ffi::rust_call(|_status| {
+        {%- for arg in func.arguments %}
+        {%- if arg.is_buffer %}
+        let {{ arg.name }}_rb = unsafe { jni_bytebuffer_to_rustbuffer(&mut env, {{ arg.name }}) };
+        {%- endif %}
+        {%- endfor %}
+        let result = unsafe { {{ func.ffi_name }}(
+            {%- for arg in func.arguments %}
+            {%- if arg.is_buffer %}{{ arg.name }}_rb{%- else %}{{ arg.name }}{%- endif %},
+            {%- endfor %}
+            _status,
+        ) };
+        {%- if func.return_is_buffer %}
+        unsafe { rustbuffer_to_jni_bytebuffer(&mut env, result) }
+        {%- else %}
+        result
+        {%- endif %}
     })
-    {% else %}
-    todo!("implement bridge for {}", "{{ func.name }}");
-    {% endif %}
+    {%- else %}
+    {# No RustCallStatus - simple call #}
+    {%- for arg in func.arguments %}
+    {%- if arg.is_buffer %}
+    let {{ arg.name }}_rb = unsafe { jni_bytebuffer_to_rustbuffer(&mut env, {{ arg.name }}) };
+    {%- endif %}
+    {%- endfor %}
+    {%- if func.return_is_buffer %}
+    let result = unsafe { {{ func.ffi_name }}(
+        {%- for arg in func.arguments %}
+        {%- if arg.is_buffer %}{{ arg.name }}_rb{%- else %}{{ arg.name }}{%- endif %},
+        {%- endfor %}
+    ) };
+    unsafe { rustbuffer_to_jni_bytebuffer(&mut env, result) }
+    {%- else %}
+    unsafe { {{ func.ffi_name }}(
+        {%- for arg in func.arguments %}
+        {%- if arg.is_buffer %}{{ arg.name }}_rb{%- else %}{{ arg.name }}{%- endif %},
+        {%- endfor %}
+    ) }
+    {%- endif %}
+    {%- endif %}
 }
 
 {% endfor %}

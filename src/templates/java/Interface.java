@@ -42,8 +42,7 @@
             {{ arg.ty|java_type }} {{ arg.java_name }}{% if !loop.last %}, {% endif %}
             {%- endfor -%}
         ) {
-            // TODO: lower args, call native, lift result
-            throw new RuntimeException("TODO: implement interface method {{ method.name }}");
+            {{ method.body }}
         }
         {%- endfor %}
 

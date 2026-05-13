@@ -128,4 +128,30 @@ public final class RustBuffer implements AutoCloseable {
         close();
         return bytes;
     }
+
+    // --- Static helpers for reading raw ByteBuffer data from JNI bridge ---
+
+    /**
+     * Read a UTF-8 string from a raw ByteBuffer returned by the JNI bridge.
+     * The buffer contains raw UTF-8 bytes (no length prefix).
+     * Does NOT free any native memory (the JNI bridge already freed it).
+     */
+    static String readStringFromByteBuffer(ByteBuffer buf) {
+        if (buf == null || buf.remaining() == 0) return "";
+        byte[] bytes = new byte[buf.remaining()];
+        buf.get(bytes);
+        return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Read a byte array from a raw ByteBuffer returned by the JNI bridge.
+     * The buffer contains raw bytes (no length prefix).
+     * Does NOT free any native memory (the JNI bridge already freed it).
+     */
+    static byte[] readBytesFromByteBuffer(ByteBuffer buf) {
+        if (buf == null || buf.remaining() == 0) return new byte[0];
+        byte[] bytes = new byte[buf.remaining()];
+        buf.get(bytes);
+        return bytes;
+    }
 }

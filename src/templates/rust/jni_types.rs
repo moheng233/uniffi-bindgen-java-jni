@@ -36,6 +36,43 @@ pub fn vec_to_jni_bytebuffer(env: &mut JNIEnv, data: &[u8]) -> jobject {
     buf.into_raw()
 }
 
+/// Convert a JNI ByteBuffer into a UniFFI RustBuffer for passing to FFI.
+/// This COPIES the data — the caller must free the returned RustBuffer.
+pub unsafe fn jni_bytebuffer_to_rustbuffer(
+    env: &mut JNIEnv,
+    buf: jobject,
+) -> uniffi::ffi::RustBuffer {
+    let jbuf = JByteBuffer::from_raw(buf);
+    let addr = env.get_direct_buffer_address(&jbuf)
+        .expect("Failed to get direct buffer address");
+    let capacity = env.get_direct_buffer_capacity(&jbuf)
+        .expect("Failed to get direct buffer capacity");
+    let data = std::slice::from_raw_parts(addr as *const u8, capacity);
+    let mut vec = data.to_vec();
+    let ptr = vec.as_mut_ptr();
+    std::mem::forget(vec);
+    uniffi::ffi::RustBuffer {
+        capacity: capacity as u32,
+        len: capacity as u32,
+        data: ptr,
+    }
+}
+
+/// Convert a UniFFI RustBuffer into a JNI ByteBuffer.
+/// This COPIES the data into a Java-managed buffer and FREES the RustBuffer.
+pub unsafe fn rustbuffer_to_jni_bytebuffer(
+    env: &mut JNIEnv,
+    rb: uniffi::ffi::RustBuffer,
+) -> jobject {
+    let data = std::slice::from_raw_parts(rb.data, rb.len as usize);
+    let buf = env.new_direct_byte_buffer(data)
+        .expect("Failed to create direct byte buffer");
+    let result = buf.into_raw();
+    // Free the RustBuffer data (but not the struct itself — it's on the stack)
+    let _ = Vec::from_raw_parts(rb.data, rb.len as usize, rb.capacity as usize);
+    result
+}
+
 /// Helper to get a Direct ByteBuffer from a raw address and length.
 /// Used when Rust passes a pointer to data back to Java.
 pub unsafe fn raw_to_jni_bytebuffer(
@@ -47,5 +84,15 @@ pub unsafe fn raw_to_jni_bytebuffer(
     let buf = env.new_direct_byte_buffer(data)
         .expect("Failed to create byte buffer from raw pointer");
     buf.into_raw()
+}
+
+/// Convert a JNI jlong to a *const T pointer.
+pub unsafe fn jlong_to_ptr<T>(handle: jlong) -> *const T {
+    handle as *const T
+}
+
+/// Convert a *const T pointer to a JNI jlong.
+pub fn ptr_to_jlong<T>(ptr: *const T) -> jlong {
+    ptr as jlong
 }
 

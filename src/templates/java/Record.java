@@ -35,16 +35,14 @@
          * Serialize this record into a {@link ByteBuffer}.
          */
         public ByteBuffer write() {
-            // TODO: compute allocation size and serialize
-            throw new RuntimeException("TODO: implement Record.write for {{ rec.name }}");
+            {{ rec.write_body }}
         }
 
         /**
          * Deserialize a record from a {@link ByteBuffer}.
          */
         public static {{ rec.java_name }} read(ByteBuffer buf) {
-            // TODO: read fields from buffer
-            throw new RuntimeException("TODO: implement Record.read for {{ rec.name }}");
+            {{ rec.read_body }}
         }
 
         // --- Standard methods ---

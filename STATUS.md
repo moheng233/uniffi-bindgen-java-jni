@@ -2,7 +2,7 @@
 
 **日期**: 2026-05-13
 **编译**: ✅ 零错误零警告（clippy clean）
-**Phase 1-5**: ✅ | **Phase 6**: ⏳ | **Phase 7**: ⚠️
+**Phase 1-7**: ✅ | **测试**: ✅ 44 个测试全部通过
 
 ---
 
@@ -23,9 +23,9 @@
 | 2 | Pipeline（config/nodes/modules/filters/context） | ✅ | general IR → Java IR 转换完成 |
 | 3 | gen_java、gen_rust 入口层 | ✅ | 可编译、可调用 |
 | 4 | Java 模板 | ✅ | 12 个模板全部填充，wrapper.java 使用 {% include %} 集成 |
-| 5 | Rust 胶水模板 | ✅ | 5 个 Askama 模板激活，替换字符串拼接 |
-| 6 | Callback Interface | ⏳ | 未开始（模板框架就位，逻辑 TODO） |
-| 7 | CLI 完善 | ⚠️ | 参数解析可用，config 解析 TODO |
+| 5 | Rust 胶水模板 | ✅ | 5 个 Askama 模板激活，JNI 桥接实现 |
+| 6 | Callback Interface + JNI 桥接 | ✅ | CallbackInterface 模板就位，jni_bridge.rs 真实 FFI 调用已实现 |
+| 7 | CLI 完善 | ✅ | 参数解析、config 解析（`[bindings.java]` 段）、`--main-crate-path` 支持 |
 
 ---
 
@@ -49,7 +49,7 @@ Java IR (src/pipeline/nodes.rs)
     ├──▶ gen_java::generate_java_code()   → Askama 渲染 wrapper.java (含 12 个子模板) → {java_out_dir}
     └──▶ gen_rust::generate_rust_glue()   → Askama 渲染 Rust 模板 (5 个) → {rust_out_dir}
 ```
-（当前 gen_rust 是字符串拼接，需重构为 Askama Template derive）
+（当前 gen_rust 全部使用 Askama 模板渲染）
 
 ### 关键类型映射
 
@@ -85,17 +85,17 @@ Java IR (src/pipeline/nodes.rs)
 |------|------|------|
 | `Cargo.toml` | ✅ | 全部依赖配置完成 |
 | `askama.toml` | ✅ | `escaper = "none"` 对 java + rs 语法 |
-| `src/lib.rs` | ✅ | `generate_java_jni_bindings()` 完整 pipeline 调用链 |
-| `src/main.rs` | ✅ | clap CLI（source/java-out-dir/rust-out-dir/config/crate-filter） |
+| `src/lib.rs` | ✅ | `generate_java_jni_bindings()` accepts `config: &JavaConfig` + `main_crate_path: Option<&Utf8Path>` |
+| `src/main.rs` | ✅ | clap CLI（source/java-out-dir/rust-out-dir/config/crate-filter/main-crate-path），config 解析调用 `parse_java_config()` |
 | `src/pipeline/mod.rs` | ✅ | `general_pipeline()` 函数 |
-| `src/pipeline/config.rs` | ✅ | `JavaConfig` / `CustomTypeConfig` |
+| `src/pipeline/config.rs` | ✅ | `JavaConfig` / `CustomTypeConfig` / `parse_java_config()` |
 | `src/pipeline/context.rs` | ✅ | `Context` 结构体 |
 | `src/pipeline/nodes.rs` | ✅ | Java IR 全部节点，`RustFfiFunctionName` 含 `.name()` 方法 |
-| `src/pipeline/modules.rs` | ✅ | 所有 `convert_*` 函数，general→Java 转换 |
-| `src/pipeline/filters.rs` | ✅ | `ffi_type_java` / `java_type` Askama 过滤器 |
+| `src/pipeline/modules.rs` | ✅ | 所有 `convert_*` 函数，general→Java 转换 + 14 个单元测试 |
+| `src/pipeline/filters.rs` | ✅ | `ffi_type_java` / `java_type` 等 6 个 Askama 过滤器 + 已提取 `_str` 纯函数 + 22 个单元测试 |
 | `src/gen_java/mod.rs` | ✅ | `generate_java_code()` + `JavaCodeOracle`，渲染 wrapper.java |
 | `src/gen_rust/mod.rs` | ✅ | 全部改用 Askama 模板渲染（含 `ffi_type_rust_name` 辅助函数） |
-| `src/gen_rust/cargo_toml.rs` | ✅ | Askama：`CargoTomlTemplate` |
+| `src/gen_rust/cargo_toml.rs` | ✅ | Askama：`CargoTomlTemplate`（含 main_crate_path） |
 | `src/gen_rust/jni_types.rs` | ✅ | Askama：`JniTypesTemplate`（含 `raw_to_jni_bytebuffer` 辅助） |
 | `src/gen_rust/jni_func.rs` | ✅ | `jni_func_name` / `jni_ctor_name` 工具函数 |
 | `src/gen_rust/callback_gen.rs` | ✅ | Askama：`JniCallbackTemplate` |
@@ -105,18 +105,18 @@ Java IR (src/pipeline/nodes.rs)
 | 文件 | 状态 | 内容 |
 |------|------|------|
 | `wrapper.java` | ✅ | 顶层模板，`{% include %}` 集成所有子模板 |
-| `RustBuffer.java` | ✅ | ByteBuffer 包装器 + native handle 管理 |
+| `RustBuffer.java` | ✅ | ByteBuffer 包装器 + native handle 管理 + `readStringFromByteBuffer`/`readBytesFromByteBuffer` |
 | `RustBufferStream.java` | ✅ | 类型序列化流（read/write 各基本类型） |
 | `HandleMap.java` | ✅ | 线程安全 handle→object 映射表 |
 | `FfiConverter.java` | ✅ | FFI 转换器接口（lift/lower/read/write/allocationSize） |
 | `Helpers.java` | ✅ | RustCallStatus + 错误处理辅助 |
-| `Function.java` | ✅ | 顶层函数 include 模板 |
-| `Object.java` | ✅ | Struct 对象 include 模板 |
-| `Interface.java` | ✅ | Trait 对象 include 模板（接口 + Impl） |
-| `Record.java` | ✅ | 数据记录 include 模板（含 equals/hashCode/toString） |
-| `Enum.java` | ✅ | 枚举 include 模板（sealed class + 变体子类） |
-| `CallbackInterface.java` | ✅ | 回调接口定义 include 模板 |
-| `CallbackInterfaceImpl.java` | ✅ | 回调实现（HandleMap + 回调方法分发） |
+| `Function.java` | ✅ | 顶层函数 — 使用预计算 body（lower→native→lift） |
+| `Object.java` | ✅ | Struct 对象 — 使用预计算 body |
+| `Interface.java` | ✅ | Trait 对象 — Impl 方法使用预计算 body |
+| `Record.java` | ✅ | 数据记录 — 包含完整 write()/read() 序列化逻辑 |
+| `Enum.java` | ✅ | 枚举 — 包含 write()/read() 变体分发逻辑 |
+| `CallbackInterface.java` | ✅ | 回调接口定义 include 模板（TODO: VTable） |
+| `CallbackInterfaceImpl.java` | ✅ | 回调实现（HandleMap + 回调方法分发）
 
 ### Rust 模板（src/templates/rust/）
 
@@ -164,12 +164,11 @@ D:\packages\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\
 
 ## 下一步工作建议（按优先级）
 
-1. **实现 Java 端 lift/lower/read/write 逻辑** — 模板框架就位但核心转换逻辑是 TODO
-2. **实现 jni_bridge.rs 的函数体** — JNI→FFI 参数转换 + uniffi::ffi::rust_call 调用
-3. **Callback Interface 完整实现** — Phase 6（VTable 生成，双向 JNI 调用）
-4. **CLI config 解析** — `main.rs` 中有 TODO
-5. **填充 16 个 pipeline/gen_java stub 文件** — 按需激活
-6. **端到端测试** — fixture crate + Java 代码 + Gradle 编译
+1. **使用案例** — 编写 example crate（含 cdylib + UDL/ProcMacro），运行完整 pipeline 生成 Java + Rust 胶水代码，验证产物可编译
+2. **Callback Interface VTable 生成** — 双向 JNI 调用（VTable dispatch）
+3. **填充 stub 文件** — 按需激活 16 个 pipeline/gen_java stub 文件
+4. **端到端测试** — fixture crate + Java 代码 + Gradle 编译
+5. **实现 RustCallStatus 的完整 JNI 桥接** — jni_bridge.rs 中错误处理润色
 
 ---
 
@@ -183,3 +182,8 @@ D:\packages\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\
 - **Askama 不能使用 `|` 闭包语法** — 用 `{% match %}` / `{% when %}` 代替 `.map_or("void", \|t\| t\|java_type)`
 - **Java 模板 include 作用域** — 在 `{% match td %}{% when TypeDefinition::Object(obj) %}` 内 include 的模板可以直接访问 `obj`
 - **askama.toml 需要 `escaper = "none"`** — 对 java 和 rs 语法都需要
+- **方法体用 Rust 预计算** — `body_gen.rs` 生成函数/构造器/方法的完整 body，模板只用 `{{ func.body }}` 输出（避免 Askama 类型匹配问题）
+- **模板避免嵌套 match 含 filter** — Askama 的 `{% match ret|filter %}` 可能触发类型错误，改用预计算字符串
+- **Argument 含 `lower_code` 和 `native_expr`** — 在 `convert_argument()` 中调用 `body_gen` 预计算
+- **Record/Enum 有 `write_body`/`read_body`** — 序列化逻辑在 Rust 端预计算
+- **⚠️ TODO: 减少预计算字符串依赖** — 当前 `body_gen.rs` 将大量 Java 代码拼接为字符串再注入模板，导致代码风格割裂、难以维护。理想方案是 Askama 模板自行处理类型匹配和代码生成，但受限于 Askama 对 tuple variant (如 `TypeNode::Optional(Box<TypeNode>)`) 和嵌套 match+filter 的支持不足。未来可选方向：为 Java 节点实现自定义 `#[derive(Template)]` render 方法；

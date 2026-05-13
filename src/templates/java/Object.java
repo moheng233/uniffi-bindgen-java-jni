@@ -36,8 +36,7 @@
             {{ arg.ty|java_type }} {{ arg.java_name }}{% if !loop.last %}, {% endif %}
             {%- endfor -%}
         ) {
-            // TODO: lower args and call native constructor {{ ctor.ffi_func.name() }}
-            throw new RuntimeException("TODO: implement constructor {{ ctor.name }}");
+            {{ ctor.body }}
         }
         {%- endfor %}
 
@@ -48,8 +47,7 @@
             {{ arg.ty|java_type }} {{ arg.java_name }}{% if !loop.last %}, {% endif %}
             {%- endfor -%}
         ) {
-            // TODO: lower args, call native, lift result
-            throw new RuntimeException("TODO: implement method {{ method.name }}");
+            {{ method.body }}
         }
         {%- endfor %}
 

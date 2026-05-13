@@ -11,11 +11,7 @@
         {{ arg.ty|java_type }} {{ arg.java_name }}{% if !loop.last %}, {% endif %}
         {%- endfor -%}
     ) {
-        {%- if func.throws.is_some() %}
-        Helpers.RustCallStatus status = new Helpers.RustCallStatus();
-        {%- endif %}
-        {# TODO: lower args, call native, lift result #}
-        throw new RuntimeException("TODO: implement function {{ func.name }}");
+        {{ func.body }}
     }
 {%- endif -%}
 

@@ -9,6 +9,9 @@ pub mod context;
 pub mod filters;
 pub mod modules;
 pub mod nodes;
+pub mod body_gen;
+pub mod types;
+pub mod jni_signature;
 
 use uniffi_bindgen::pipeline::general;
 use uniffi_pipeline::Pipeline;

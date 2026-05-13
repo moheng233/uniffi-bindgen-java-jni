@@ -59,6 +59,10 @@ pub struct Function {
     pub docstring: Option<String>,
     pub ffi_func: RustFfiFunctionName,
     pub checksum: Option<u16>,
+    /// Pre-rendered method body (lower args + call native + lift result)
+    /// TODO: Replace with native Askama template matching once Askama supports
+    /// tuple variant destructuring in match/when patterns.
+    pub body: String,
 }
 
 /// Function/method argument.
@@ -69,6 +73,11 @@ pub struct Argument {
     pub ty: TypeNode,
     pub optional: bool,
     pub default: Option<DefaultValue>,
+    /// Pre-computed lowering expression for this argument.
+    /// Empty string for primitives (pass through).
+    pub lower_code: String,
+    /// The expression to use when passing to native method.
+    pub native_expr: String,
 }
 
 /// A type definition in the Java bindings.
@@ -109,6 +118,8 @@ pub struct Constructor {
     pub throws: Option<TypeNode>,
     pub ffi_func: RustFfiFunctionName,
     pub checksum: Option<u16>,
+    /// Pre-rendered constructor body
+    pub body: String,
 }
 
 /// A method on an Object, Record, or Enum.
@@ -122,6 +133,8 @@ pub struct Method {
     pub throws: Option<TypeNode>,
     pub ffi_func: RustFfiFunctionName,
     pub checksum: Option<u16>,
+    /// Pre-rendered method body
+    pub body: String,
 }
 
 /// A Record (data struct).
@@ -131,6 +144,10 @@ pub struct Record {
     pub java_name: String,
     pub docstring: Option<String>,
     pub fields: Vec<Field>,
+    /// Pre-rendered write() method body
+    pub write_body: String,
+    /// Pre-rendered read() method body
+    pub read_body: String,
 }
 
 /// A field in a Record or Enum variant.
@@ -150,6 +167,10 @@ pub struct Enum {
     pub docstring: Option<String>,
     pub variants: Vec<Variant>,
     pub is_flat: bool,
+    /// Pre-rendered write() method body
+    pub write_body: String,
+    /// Pre-rendered read() method body
+    pub read_body: String,
 }
 
 /// An Enum variant.

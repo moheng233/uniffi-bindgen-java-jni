@@ -1,6 +1,7 @@
 use anyhow::Result;
 use uniffi_bindgen::pipeline::general;
 
+use super::body_gen;
 use super::config::JavaConfig;
 use super::nodes::*;
 
@@ -18,16 +19,22 @@ pub fn convert_namespace(
         "java.nio.ByteOrder".to_string(),
     ];
 
-    let functions: Vec<Function> = namespace
+    let mut functions: Vec<Function> = namespace
         .functions
         .iter()
         .map(convert_function)
         .collect::<Result<Vec<_>>>()?;
 
+    // Generate method bodies for functions
+    let class_name = to_upper_camel_case(&namespace.name);
+    for func in &mut functions {
+        func.body = body_gen::generate_function_body(func, &class_name);
+    }
+
     let type_definitions: Vec<TypeDefinition> = namespace
         .type_definitions
         .iter()
-        .map(convert_type_definition)
+        .map(|td| convert_type_definition(td, &class_name))
         .collect::<Result<Vec<_>>>()?;
 
     let ffi_definitions: Vec<FfiDefinition> = namespace
@@ -73,17 +80,33 @@ fn convert_function(func: &general::Function) -> Result<Function> {
         docstring: func.docstring.clone(),
         ffi_func: RustFfiFunctionName(func.callable.ffi_func.0.clone()),
         checksum: func.checksum,
+        body: String::new(), // filled in later by convert_namespace
     })
 }
 
 fn convert_argument(arg: &general::Argument) -> Result<Argument> {
     let java_name = escape_reserved_word(&to_lower_camel_case(&arg.name));
+    let ty = convert_type_node(&arg.ty);
+    // We create a temporary Argument to compute lower_code and native_expr
+    let temp = Argument {
+        name: arg.name.clone(),
+        java_name: java_name.clone(),
+        ty: ty.clone(),
+        optional: arg.optional,
+        default: arg.default.as_ref().map(convert_default),
+        lower_code: String::new(),
+        native_expr: String::new(),
+    };
+    let lower_code = body_gen::lower_code_for_arg(&temp);
+    let native_expr = body_gen::native_expr_for_arg(&temp);
     Ok(Argument {
         name: arg.name.clone(),
         java_name,
-        ty: convert_type_node(&arg.ty),
+        ty,
         optional: arg.optional,
         default: arg.default.as_ref().map(convert_default),
+        lower_code,
+        native_expr,
     })
 }
 
@@ -159,7 +182,7 @@ fn convert_literal(_lit: &general::Literal) -> Literal {
     Literal::None
 }
 
-fn convert_type_definition(td: &general::TypeDefinition) -> Result<TypeDefinition> {
+fn convert_type_definition(td: &general::TypeDefinition, class_name: &str) -> Result<TypeDefinition> {
     match td {
         general::TypeDefinition::Interface(int) => {
             let imp = match int.imp {
@@ -167,58 +190,69 @@ fn convert_type_definition(td: &general::TypeDefinition) -> Result<TypeDefinitio
                 general::ObjectImpl::Trait => ObjectImpl::Trait,
                 general::ObjectImpl::CallbackTrait => ObjectImpl::CallbackTrait,
             };
+            let obj_java_name = to_upper_camel_case(&int.name);
+            let mut ctors: Vec<Constructor> = int
+                .constructors
+                .iter()
+                .map(|c| {
+                    Ok(Constructor {
+                        name: c.name.clone(),
+                        java_name: format!("new{}", to_upper_camel_case(&c.name)),
+                        arguments: c
+                            .inputs
+                            .iter()
+                            .map(convert_argument)
+                            .collect::<Result<Vec<_>>>()?,
+                        throws: c.throws.as_ref().map(convert_type),
+                        ffi_func: RustFfiFunctionName(c.callable.ffi_func.0.clone()),
+                        checksum: c.checksum,
+                        body: String::new(),
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            for ctor in &mut ctors {
+                ctor.body = body_gen::generate_constructor_body(ctor, class_name, &obj_java_name);
+            }
+
+            let mut methods: Vec<Method> = int
+                .methods
+                .iter()
+                .map(|m| {
+                    Ok(Method {
+                        name: m.name.clone(),
+                        java_name: to_lower_camel_case(&m.name),
+                        is_async: m.is_async,
+                        arguments: m
+                            .inputs
+                            .iter()
+                            .map(convert_argument)
+                            .collect::<Result<Vec<_>>>()?,
+                        return_type: m.return_type.as_ref().map(convert_type),
+                        throws: m.throws.as_ref().map(convert_type),
+                        ffi_func: RustFfiFunctionName(m.callable.ffi_func.0.clone()),
+                        checksum: m.checksum,
+                        body: String::new(),
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            for method in &mut methods {
+                method.body = body_gen::generate_method_body(method, class_name);
+            }
+
             Ok(TypeDefinition::Object(Object {
                 name: int.name.clone(),
-                java_name: to_upper_camel_case(&int.name),
+                java_name: obj_java_name,
                 imp,
                 docstring: int.docstring.as_ref().map(|d| d.to_string()),
-                constructors: int
-                    .constructors
-                    .iter()
-                    .map(|c| {
-                        Ok(Constructor {
-                            name: c.name.clone(),
-                            java_name: format!("new{}", to_upper_camel_case(&c.name)),
-                            arguments: c
-                                .inputs
-                                .iter()
-                                .map(convert_argument)
-                                .collect::<Result<Vec<_>>>()?,
-                            throws: c.throws.as_ref().map(convert_type),
-                            ffi_func: RustFfiFunctionName(c.callable.ffi_func.0.clone()),
-                            checksum: c.checksum,
-                        })
-                    })
-                    .collect::<Result<Vec<_>>>()?,
-                methods: int
-                    .methods
-                    .iter()
-                    .map(|m| {
-                        Ok(Method {
-                            name: m.name.clone(),
-                            java_name: to_lower_camel_case(&m.name),
-                            is_async: m.is_async,
-                            arguments: m
-                                .inputs
-                                .iter()
-                                .map(convert_argument)
-                                .collect::<Result<Vec<_>>>()?,
-                            return_type: m.return_type.as_ref().map(convert_type),
-                            throws: m.throws.as_ref().map(convert_type),
-                            ffi_func: RustFfiFunctionName(m.callable.ffi_func.0.clone()),
-                            checksum: m.checksum,
-                        })
-                    })
-                    .collect::<Result<Vec<_>>>()?,
+                constructors: ctors,
+                methods,
                 ffi_func_clone: RustFfiFunctionName(int.ffi_func_clone.0.clone()),
                 ffi_func_free: RustFfiFunctionName(int.ffi_func_free.0.clone()),
             }))
         }
-        general::TypeDefinition::Record(rec) => Ok(TypeDefinition::Record(Record {
-            name: rec.name.clone(),
-            java_name: to_upper_camel_case(&rec.name),
-            docstring: rec.docstring.as_ref().map(|d| d.to_string()),
-            fields: rec
+        general::TypeDefinition::Record(rec) => {
+            let java_name = to_upper_camel_case(&rec.name);
+            let fields: Vec<Field> = rec
                 .fields
                 .iter()
                 .map(|f| {
@@ -229,13 +263,29 @@ fn convert_type_definition(td: &general::TypeDefinition) -> Result<TypeDefinitio
                         default: f.default.as_ref().map(convert_default),
                     })
                 })
-                .collect::<Result<Vec<_>>>()?,
-        })),
-        general::TypeDefinition::Enum(e) => Ok(TypeDefinition::Enum(Enum {
-            name: e.name.clone(),
-            java_name: to_upper_camel_case(&e.name),
-            docstring: e.docstring.as_ref().map(|d| d.to_string()),
-            variants: e
+                .collect::<Result<Vec<_>>>()?;
+            let temp_record = Record {
+                name: rec.name.clone(),
+                java_name: java_name.clone(),
+                docstring: rec.docstring.as_ref().map(|d| d.to_string()),
+                fields: fields.clone(),
+                write_body: String::new(),
+                read_body: String::new(),
+            };
+            let write_body = body_gen::generate_record_write_body(&temp_record);
+            let read_body = body_gen::generate_record_read_body(&temp_record);
+            Ok(TypeDefinition::Record(Record {
+                name: rec.name.clone(),
+                java_name,
+                docstring: rec.docstring.as_ref().map(|d| d.to_string()),
+                fields,
+                write_body,
+                read_body,
+            }))
+        }
+        general::TypeDefinition::Enum(e) => {
+            let java_name = to_upper_camel_case(&e.name);
+            let variants: Vec<Variant> = e
                 .variants
                 .iter()
                 .map(|v| {
@@ -257,9 +307,28 @@ fn convert_type_definition(td: &general::TypeDefinition) -> Result<TypeDefinitio
                         has_fields: !v.fields.is_empty(),
                     })
                 })
-                .collect::<Result<Vec<_>>>()?,
-            is_flat: e.is_flat,
-        })),
+                .collect::<Result<Vec<_>>>()?;
+            let temp_enum = Enum {
+                name: e.name.clone(),
+                java_name: java_name.clone(),
+                docstring: e.docstring.as_ref().map(|d| d.to_string()),
+                variants: variants.clone(),
+                is_flat: e.is_flat,
+                write_body: String::new(),
+                read_body: String::new(),
+            };
+            let write_body = body_gen::generate_enum_write_body(&temp_enum);
+            let read_body = body_gen::generate_enum_read_body(&temp_enum);
+            Ok(TypeDefinition::Enum(Enum {
+                name: e.name.clone(),
+                java_name,
+                docstring: e.docstring.as_ref().map(|d| d.to_string()),
+                variants,
+                is_flat: e.is_flat,
+                write_body,
+                read_body,
+            }))
+        }
         general::TypeDefinition::CallbackInterface(cbi) => {
             Ok(TypeDefinition::CallbackInterface(CallbackInterface {
                 name: cbi.name.clone(),
@@ -282,6 +351,7 @@ fn convert_type_definition(td: &general::TypeDefinition) -> Result<TypeDefinitio
                             throws: m.throws.as_ref().map(convert_type),
                             ffi_func: RustFfiFunctionName(m.callable.ffi_func.0.clone()),
                             checksum: m.checksum,
+                            body: String::new(), // callback methods are abstract in the interface
                         })
                     })
                     .collect::<Result<Vec<_>>>()?,
@@ -423,5 +493,142 @@ fn escape_reserved_word(name: &str) -> String {
         format!("_{name}")
     } else {
         name.to_string()
+    }
+}
+
+// --- Tests ---
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uniffi_bindgen::pipeline::general::{FfiType as GeneralFfiType, HandleKind, Type as GeneralType};
+
+    // ========== convert_type tests ==========
+
+    #[test]
+    fn convert_primitive_types() {
+        assert!(matches!(convert_type(&GeneralType::Int8), TypeNode::Int8));
+        assert!(matches!(convert_type(&GeneralType::UInt8), TypeNode::UInt8));
+        assert!(matches!(convert_type(&GeneralType::Int16), TypeNode::Int16));
+        assert!(matches!(convert_type(&GeneralType::Int32), TypeNode::Int32));
+        assert!(matches!(convert_type(&GeneralType::Int64), TypeNode::Int64));
+        assert!(matches!(convert_type(&GeneralType::Float32), TypeNode::Float32));
+        assert!(matches!(convert_type(&GeneralType::Float64), TypeNode::Float64));
+        assert!(matches!(convert_type(&GeneralType::Boolean), TypeNode::Boolean));
+        assert!(matches!(convert_type(&GeneralType::String), TypeNode::String));
+        assert!(matches!(convert_type(&GeneralType::Bytes), TypeNode::Bytes));
+        assert!(matches!(convert_type(&GeneralType::Timestamp), TypeNode::Timestamp));
+        assert!(matches!(convert_type(&GeneralType::Duration), TypeNode::Duration));
+    }
+
+    #[test]
+    fn convert_interface_to_object() {
+        let result = convert_type(&GeneralType::Interface {
+            namespace: "test_ns".into(),
+            name: "MyType".into(),
+            imp: general::ObjectImpl::Struct,
+        });
+        assert!(matches!(result, TypeNode::Object { namespace, name }
+            if namespace == "test_ns" && name == "MyType"));
+    }
+
+    #[test]
+    fn convert_record_type() {
+        let result = convert_type(&GeneralType::Record {
+            namespace: "ns".into(),
+            name: "MyRecord".into(),
+        });
+        assert!(matches!(result, TypeNode::Record { namespace, name }
+            if namespace == "ns" && name == "MyRecord"));
+    }
+
+    #[test]
+    fn convert_enum_type() {
+        let result = convert_type(&GeneralType::Enum {
+            namespace: "ns".into(),
+            name: "MyEnum".into(),
+        });
+        assert!(matches!(result, TypeNode::Enum { namespace, name }
+            if namespace == "ns" && name == "MyEnum"));
+    }
+
+    #[test]
+    fn convert_optional_type() {
+        let result = convert_type(&GeneralType::Optional {
+            inner_type: Box::new(GeneralType::Int32),
+        });
+        assert!(matches!(result, TypeNode::Optional(inner)
+            if matches!(*inner, TypeNode::Int32)));
+    }
+
+    #[test]
+    fn convert_sequence_type() {
+        let result = convert_type(&GeneralType::Sequence {
+            inner_type: Box::new(GeneralType::String),
+        });
+        assert!(matches!(result, TypeNode::Sequence(inner)
+            if matches!(*inner, TypeNode::String)));
+    }
+
+    // ========== convert_ffi_type tests ==========
+
+    #[test]
+    fn convert_ffi_primitives() {
+        assert!(matches!(convert_ffi_type(&GeneralFfiType::Int8), FfiType::Int8));
+        assert!(matches!(convert_ffi_type(&GeneralFfiType::UInt8), FfiType::UInt8));
+        assert!(matches!(convert_ffi_type(&GeneralFfiType::Int16), FfiType::Int16));
+        assert!(matches!(convert_ffi_type(&GeneralFfiType::Int32), FfiType::Int32));
+        assert!(matches!(convert_ffi_type(&GeneralFfiType::Int64), FfiType::Int64));
+        assert!(matches!(convert_ffi_type(&GeneralFfiType::Float32), FfiType::Float32));
+        assert!(matches!(convert_ffi_type(&GeneralFfiType::Float64), FfiType::Float64));
+    }
+
+    #[test]
+    fn convert_ffi_rust_buffer() {
+        assert!(matches!(
+            convert_ffi_type(&GeneralFfiType::RustBuffer(None)),
+            FfiType::RustBuffer
+        ));
+    }
+
+    #[test]
+    fn convert_ffi_handle() {
+        assert!(matches!(
+            convert_ffi_type(&GeneralFfiType::Handle(HandleKind::RustFuture)),
+            FfiType::Handle
+        ));
+    }
+
+    #[test]
+    fn convert_ffi_void_pointer() {
+        assert!(matches!(convert_ffi_type(&GeneralFfiType::VoidPointer), FfiType::VoidPointer));
+    }
+
+    // ========== naming helpers tests ==========
+
+    #[test]
+    fn upper_camel_case() {
+        assert_eq!(to_upper_camel_case("hello_world"), "HelloWorld");
+        assert_eq!(to_upper_camel_case("hello-world"), "HelloWorld");
+        assert_eq!(to_upper_camel_case("foo"), "Foo");
+    }
+
+    #[test]
+    fn lower_camel_case() {
+        assert_eq!(to_lower_camel_case("HelloWorld"), "helloWorld");
+        assert_eq!(to_lower_camel_case("hello_world"), "helloWorld");
+    }
+
+    #[test]
+    fn snake_case() {
+        assert_eq!(to_snake_case("HelloWorld"), "hello_world");
+        assert_eq!(to_snake_case("helloWorld"), "hello_world");
+    }
+
+    #[test]
+    fn escape_reserved_word_test() {
+        assert_eq!(escape_reserved_word("class"), "_class");
+        assert_eq!(escape_reserved_word("myVar"), "myVar");
+        assert_eq!(escape_reserved_word("int"), "_int");
     }
 }

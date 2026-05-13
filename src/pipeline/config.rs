@@ -1,3 +1,5 @@
+use anyhow::Result;
+
 /// Java JNI specific configuration parsed from uniffi.toml's [bindings.java] section.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(default)]
@@ -50,5 +52,19 @@ impl JavaConfig {
         self.cdylib_name
             .clone()
             .unwrap_or_else(|| format!("uniffi_{}", namespace.replace('-', "_")))
+    }
+}
+
+/// Parse `JavaConfig` from a parsed uniffi.toml `toml::Value`.
+///
+/// Looks for the `[bindings.java]` section.
+/// Returns `JavaConfig::default()` if the section is absent.
+pub fn parse_java_config(root_toml: &toml::Value) -> Result<JavaConfig> {
+    match root_toml.get("bindings").and_then(|b| b.get("java")) {
+        Some(java_section) => {
+            let config: JavaConfig = java_section.clone().try_into()?;
+            Ok(config)
+        }
+        None => Ok(JavaConfig::default()),
     }
 }

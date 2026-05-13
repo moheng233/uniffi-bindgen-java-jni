@@ -20,17 +20,20 @@ mod jni_func;
 struct BridgeArg {
     name: String,
     rust_type: String,
+    /// Whether this argument is a RustBuffer (needs conversion from ByteBuffer).
+    is_buffer: bool,
 }
 
 /// Data for a single JNI bridge function.
 #[derive(Debug, Clone)]
 struct BridgeFunction {
-    name: String,
     jni_name: String,
-    comment: String,
+    ffi_name: String,
     has_rust_call_status: bool,
     arguments: Vec<BridgeArg>,
     return_type: Option<String>,
+    /// Whether the return type is a RustBuffer (needs conversion to ByteBuffer).
+    return_is_buffer: bool,
 }
 
 /// Template for jni_bridge.rs
@@ -61,6 +64,7 @@ pub fn generate_rust_glue(
     root: &Root,
     out_dir: &Utf8Path,
     crate_filter: Option<&str>,
+    main_crate_path: Option<&Utf8Path>,
 ) -> Result<()> {
     fs::create_dir_all(out_dir)?;
 
@@ -70,7 +74,7 @@ pub fn generate_rust_glue(
     fs::create_dir_all(&src_dir)?;
 
     // Generate Cargo.toml
-    let cargo_toml = cargo_toml::generate_cargo_toml(glue_crate_name, root);
+    let cargo_toml = cargo_toml::generate_cargo_toml(glue_crate_name, root, main_crate_path);
     fs::write(&cargo_toml_path, cargo_toml)?;
 
     // Generate lib.rs
@@ -145,21 +149,28 @@ fn generate_jni_bridge(root: &Root, crate_filter: Option<&str>) -> Result<String
                 let args: Vec<BridgeArg> = func
                     .arguments
                     .iter()
-                    .map(|a| BridgeArg {
-                        name: a.name.clone(),
-                        rust_type: ffi_type_rust_name(&a.ty),
+                    .map(|a| {
+                        let is_buf = matches!(a.ty, FfiType::RustBuffer | FfiType::String | FfiType::Bytes);
+                        BridgeArg {
+                            name: a.name.clone(),
+                            rust_type: ffi_type_rust_name(&a.ty),
+                            is_buffer: is_buf,
+                        }
                     })
                     .collect();
 
                 let return_type = func.return_type.as_ref().map(ffi_type_rust_name);
+                let return_is_buffer = func.return_type.as_ref()
+                    .map(|ty| matches!(ty, FfiType::RustBuffer | FfiType::String | FfiType::Bytes))
+                    .unwrap_or(false);
 
                 functions.push(BridgeFunction {
-                    name: func.name.clone(),
                     jni_name: func.jni_name.clone(),
-                    comment: format!("JNI bridge for {}", func.name),
+                    ffi_name: func.name.clone(), // FFI function name from conversion
                     has_rust_call_status: func.has_rust_call_status_arg,
                     arguments: args,
                     return_type,
+                    return_is_buffer,
                 });
             }
         }
