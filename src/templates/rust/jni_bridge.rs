@@ -1,5 +1,7 @@
 // Auto-generated JNI bridge functions. DO NOT EDIT.
 
+#![allow(unused_unsafe)]
+
 use jni::JNIEnv;
 use jni::objects::JClass;
 use jni::sys::*;
@@ -11,7 +13,11 @@ use {{ main_crate_name }}::*;
 {% for func in functions %}
 #[no_mangle]
 pub extern "system" fn {{ func.jni_name }}(
+    {%- if func.needs_env %}
     mut env: JNIEnv,
+    {%- else %}
+    _env: JNIEnv,
+    {%- endif %}
     _class: JClass,
     {%- for arg in func.args %}
     {{ arg.name }}: {{ arg.jni_type }},
@@ -43,7 +49,11 @@ pub extern "system" fn {{ func.jni_name }}(
     // Convert return value
     {%- match func.return_conv_expr %}
     {%- when Some with (expr) %}
+    {%- if func.return_conv_unsafe %}
     unsafe { {{ expr }} }
+    {%- else %}
+    {{ expr }}
+    {%- endif %}
     {%- when None %}
     // void return
     {%- endmatch %}

@@ -37,6 +37,9 @@ struct BridgeFunction {
     ffi_name: String,
     has_rust_call_status: bool,
     args: Vec<BridgeArg>,
+    /// Whether this function needs `&mut env` (for JNI buffer conversions).
+    /// Controls whether `env` is declared as `mut` and used (vs `_env`).
+    needs_env: bool,
     /// The JNI return type (e.g., "jint", "jlong", "jobject")
     return_jni_type: Option<String>,
     /// The Rust FFI return type (e.g., "u32", "u64", "RustBuffer")
@@ -45,6 +48,10 @@ struct BridgeFunction {
     /// For primitives: `result as jint`
     /// For buffers: `rustbuffer_to_jni_bytebuffer(&mut env, result)`
     return_conv_expr: Option<String>,
+    /// Whether the return conversion expression needs an `unsafe` block.
+    /// True for buffer conversions (rustbuffer_to_jni_bytebuffer is unsafe fn).
+    /// False for primitive casts.
+    return_conv_unsafe: bool,
 }
 
 /// Template for jni_bridge.rs
@@ -197,7 +204,7 @@ fn generate_jni_bridge(root: &Root, crate_filter: Option<&str>) -> Result<String
                 let args: Vec<BridgeArg> = func
                     .arguments
                     .iter()
-                    .map(|a| bridge_arg_for_ffi(a))
+                    .map(bridge_arg_for_ffi)
                     .collect();
 
                 let (return_jni_type, return_ffi_rust_type, return_conv_expr) =
@@ -211,14 +218,25 @@ fn generate_jni_bridge(root: &Root, crate_filter: Option<&str>) -> Result<String
                         None => (None, None, None),
                     };
 
+                // Determine if this function needs &mut env
+                let needs_env = args.iter().any(|a| a.conv_expr.contains("&mut env"))
+                    || return_conv_expr.as_deref().is_some_and(|e| e.contains("&mut env"));
+
+                // Determine if the return conversion needs an unsafe block
+                let return_conv_unsafe = return_conv_expr
+                    .as_deref()
+                    .is_some_and(|e| e.contains("rustbuffer_to_jni_bytebuffer"));
+
                 functions.push(BridgeFunction {
                     jni_name: func.jni_name.clone(),
                     ffi_name: func.name.clone(),
                     has_rust_call_status: func.has_rust_call_status_arg,
                     args,
+                    needs_env,
                     return_jni_type,
                     return_ffi_rust_type,
                     return_conv_expr,
+                    return_conv_unsafe,
                 });
             }
         }
@@ -311,15 +329,15 @@ fn arg_conv_expr(arg_name: &str, ty: &FfiType) -> String {
         FfiType::Float32 => format!("{arg_name} as f32"),
         FfiType::Float64 => format!("{arg_name} as f64"),
         FfiType::Boolean => format!("{arg_name} as u8"),
-        // Buffers: convert via helper (unsafe)
+        // Buffers: convert via helper (jni functions are unsafe fn)
         FfiType::String | FfiType::Bytes | FfiType::RustBuffer => {
             format!("unsafe {{ jni_bytebuffer_to_rustbuffer(&mut env, {arg_name}) }}")
         }
-        // ForeignBytes: read ByteBuffer data, create ForeignBytes (unsafe)
+        // ForeignBytes: read ByteBuffer data, create ForeignBytes (jni function is unsafe fn)
         FfiType::ForeignBytes => {
             format!("unsafe {{ jni_bytebuffer_to_foreignbytes(&mut env, {arg_name}) }}")
         }
-        // Handle: use from_raw to create Handle from jlong
+        // Handle: from_raw is unsafe (constructs Handle from raw value)
         FfiType::Handle => format!("unsafe {{ uniffi::Handle::from_raw({arg_name} as u64).expect(\"invalid handle\") }}"),
         // Pointers: cast jlong to pointer
         FfiType::RustArc | FfiType::VoidPointer | FfiType::Reference(_) => {

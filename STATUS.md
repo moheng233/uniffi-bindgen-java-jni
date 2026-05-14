@@ -2,8 +2,8 @@
 
 **日期**: 2026-05-14
 **编译**: ✅ 零错误零警告（clippy clean）
-**Phase 1-7**: ✅ | **测试**: ✅ 44 个测试全部通过
-**Phase 8（使用案例）**: ✅ | **产物**: ✅ Java + Rust 胶水代码均可编译
+**Phase 1-7**: ✅ | **测试**: ✅ 45 个测试全部通过
+**Phase 8（使用案例）**: ✅ | **产物**: ✅ Java + Rust 胶水代码均可编译，零警告
 **JNI→FFI 桥接**: ✅ 真实 FFI 调用已实现
 **端到端集成**: ✅ Java 测试代码调用 Uniffi JNI 全部通过
 
@@ -167,7 +167,6 @@ D:\packages\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\
 
 ## 下一步工作建议（按优先级）
 
-1. **消减 JNI bridge warnings** — 优化模板以消除 unnecessary unsafe、unused_mut、unused_variable 等警告
 2. **RustBuffer ↔ JNI ByteBuffer 转换完善** — `jni_types.rs` 中 `jni_bytebuffer_to_rustbuffer` 需用 FFI 函数（`ffi_*_rustbuffer_alloc`）而非直接构造 RustBuffer
 3. **Callback Interface VTable 生成** — 双向 JNI 调用（VTable dispatch）
 4. **填充 stub 文件** — 按需激活 16 个 pipeline/gen_java stub 文件
@@ -204,3 +203,4 @@ D:\packages\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\
 - **对象 free/clone 桥接函数** — `_fn_free_` 和 `_fn_clone_` 不再被过滤，正常生成 JNI 桥接代码
 - **测试入口文件位于 `TestSimple.java`** — 含顶层函数、Calculator 对象、Record、Enum 之完整验证
 - **运行命令** — `java "-Djava.library.path=examples/simple/generated/rust-glue/target/debug" -cp "examples/simple/generated/java;." TestSimple`
+- **JNI bridge 零警告策略** — `jni_bridge.rs` 模板通过 `#![allow(unused_unsafe)]` 消减 remaining `unused_unsafe` 警告（FFI 调用在 rlib 链接下实际 unsafe 但 nightly 编译器误报）；`env` 参数通过 `needs_env` 字段条件化为 `mut env` 或 `_env`；返回值仅 buffer 转换包装 `unsafe { }`（`return_conv_unsafe` 判断）；arg 转换保持 `unsafe { }`（`jni_bytebuffer_to_*` / `Handle::from_raw` 确需 unsafe）
