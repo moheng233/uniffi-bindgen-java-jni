@@ -32,6 +32,7 @@ fn ffi_type_to_jni(ty: &super::nodes::FfiType) -> String {
         super::nodes::FfiType::Bytes => "[B".to_string(),
         super::nodes::FfiType::Handle => "J".to_string(),
         super::nodes::FfiType::RustBuffer => "Ljava/nio/ByteBuffer;".to_string(),
+        super::nodes::FfiType::ForeignBytes => "Ljava/nio/ByteBuffer;".to_string(),
         super::nodes::FfiType::RustArc => "J".to_string(),
         super::nodes::FfiType::VoidPointer => "J".to_string(),
         super::nodes::FfiType::Function(_) => "J".to_string(),

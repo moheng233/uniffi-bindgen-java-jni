@@ -1,9 +1,10 @@
 [package]
-name = "{{ crate_name }}"
+name = "uniffi-jni-glue"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
+name = "{{ crate_name }}"
 crate-type = ["cdylib"]
 
 [dependencies]

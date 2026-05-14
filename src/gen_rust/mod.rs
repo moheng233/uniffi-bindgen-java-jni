@@ -19,9 +19,15 @@ mod jni_func;
 #[derive(Debug, Clone)]
 struct BridgeArg {
     name: String,
-    rust_type: String,
-    /// Whether this argument is a RustBuffer (needs conversion from ByteBuffer).
-    is_buffer: bool,
+    /// The JNI type in the function signature (e.g., "jint", "jlong", "jobject")
+    jni_type: String,
+    /// The Rust FFI type that the actual FFI function expects (e.g., "u32", "u64", "RustBuffer")
+    ffi_rust_type: String,
+    /// Pre-computed expression to convert from JNI value to FFI value.
+    /// For primitives: `arg_name as u32`
+    /// For buffers: `jni_bytebuffer_to_rustbuffer(&mut env, arg_name)`
+    /// For handles: `arg_name as u64`
+    conv_expr: String,
 }
 
 /// Data for a single JNI bridge function.
@@ -30,10 +36,15 @@ struct BridgeFunction {
     jni_name: String,
     ffi_name: String,
     has_rust_call_status: bool,
-    arguments: Vec<BridgeArg>,
-    return_type: Option<String>,
-    /// Whether the return type is a RustBuffer (needs conversion to ByteBuffer).
-    return_is_buffer: bool,
+    args: Vec<BridgeArg>,
+    /// The JNI return type (e.g., "jint", "jlong", "jobject")
+    return_jni_type: Option<String>,
+    /// The Rust FFI return type (e.g., "u32", "u64", "RustBuffer")
+    return_ffi_rust_type: Option<String>,
+    /// Pre-computed expression to convert from FFI return value to JNI value.
+    /// For primitives: `result as jint`
+    /// For buffers: `rustbuffer_to_jni_bytebuffer(&mut env, result)`
+    return_conv_expr: Option<String>,
 }
 
 /// Template for jni_bridge.rs
@@ -69,7 +80,13 @@ pub fn generate_rust_glue(
 ) -> Result<()> {
     fs::create_dir_all(out_dir)?;
 
-    let glue_crate_name = "uniffi-jni-glue";
+    // Use the cdylib_name from the first module as the glue crate name,
+    // so that `cargo build` produces a DLL with the name that Java's
+    // System.loadLibrary() expects.
+    let glue_crate_name = root.modules.values()
+        .next()
+        .map(|m| m.cdylib_name.as_str())
+        .unwrap_or("uniffi-jni-glue");
     let cargo_toml_path = out_dir.join("Cargo.toml");
     let src_dir = out_dir.join("src");
     fs::create_dir_all(&src_dir)?;
@@ -172,31 +189,36 @@ fn generate_jni_bridge(root: &Root, crate_filter: Option<&str>) -> Result<String
                     continue;
                 }
 
+                // Skip callback init functions (VTable types not yet implemented)
+                if func.name.contains("_init_callback_vtable_") {
+                    continue;
+                }
+
                 let args: Vec<BridgeArg> = func
                     .arguments
                     .iter()
-                    .map(|a| {
-                        let is_buf = matches!(a.ty, FfiType::RustBuffer | FfiType::String | FfiType::Bytes);
-                        BridgeArg {
-                            name: a.name.clone(),
-                            rust_type: ffi_type_rust_name(&a.ty),
-                            is_buffer: is_buf,
-                        }
-                    })
+                    .map(|a| bridge_arg_for_ffi(a))
                     .collect();
 
-                let return_type = func.return_type.as_ref().map(ffi_type_rust_name);
-                let return_is_buffer = func.return_type.as_ref()
-                    .map(|ty| matches!(ty, FfiType::RustBuffer | FfiType::String | FfiType::Bytes))
-                    .unwrap_or(false);
+                let (return_jni_type, return_ffi_rust_type, return_conv_expr) =
+                    match &func.return_type {
+                        Some(ty) => {
+                            let jni = ffi_type_to_jni_name(ty);
+                            let ffi = ffi_type_to_ffi_rust_name(ty);
+                            let conv = return_conv_for_ffi(ty);
+                            (Some(jni), Some(ffi), Some(conv))
+                        }
+                        None => (None, None, None),
+                    };
 
                 functions.push(BridgeFunction {
                     jni_name: func.jni_name.clone(),
-                    ffi_name: func.name.clone(), // FFI function name from conversion
+                    ffi_name: func.name.clone(),
                     has_rust_call_status: func.has_rust_call_status_arg,
-                    arguments: args,
-                    return_type,
-                    return_is_buffer,
+                    args,
+                    return_jni_type,
+                    return_ffi_rust_type,
+                    return_conv_expr,
                 });
             }
         }
@@ -209,7 +231,7 @@ fn generate_jni_bridge(root: &Root, crate_filter: Option<&str>) -> Result<String
     Ok(tmpl.render()?)
 }
 
-/// Get the main crate name (hyphens replaced with underscores for Rust identifiers).
+/// Get the main crate name for Rust `use` import (underscore form).
 fn get_main_crate_name(root: &Root) -> &str {
     root.modules
         .values()
@@ -218,30 +240,119 @@ fn get_main_crate_name(root: &Root) -> &str {
         .unwrap_or("main_crate")
 }
 
-/// Map an FFI type to its Rust type name for use in JNI bridge signatures.
-fn ffi_type_rust_name(ty: &FfiType) -> String {
+/// Map a Java IR FfiType to the JNI type used in the `extern "system" fn` signature.
+fn ffi_type_to_jni_name(ty: &FfiType) -> String {
     match ty {
-        FfiType::Int8 => "jbyte".into(),
-        FfiType::UInt8 => "jbyte".into(),
-        FfiType::Int16 => "jshort".into(),
-        FfiType::UInt16 => "jshort".into(),
-        FfiType::Int32 => "jint".into(),
-        FfiType::UInt32 => "jint".into(),
-        FfiType::Int64 => "jlong".into(),
-        FfiType::UInt64 => "jlong".into(),
+        FfiType::Int8 | FfiType::UInt8 => "jbyte".into(),
+        FfiType::Int16 | FfiType::UInt16 => "jshort".into(),
+        FfiType::Int32 | FfiType::UInt32 => "jint".into(),
+        FfiType::Int64 | FfiType::UInt64 => "jlong".into(),
         FfiType::Float32 => "jfloat".into(),
         FfiType::Float64 => "jdouble".into(),
         FfiType::Boolean => "jboolean".into(),
-        FfiType::String => "jstring".into(),
-        FfiType::Bytes => "jobject".into(),
+        FfiType::String | FfiType::Bytes | FfiType::RustBuffer | FfiType::ForeignBytes
+        | FfiType::RustArc | FfiType::VoidPointer => "jobject".into(),
         FfiType::Handle => "jlong".into(),
-        FfiType::RustBuffer => "jobject".into(),
-        FfiType::RustArc => "jobject".into(),
-        FfiType::VoidPointer => "jobject".into(),
-        FfiType::Function(_) => "jlong".into(),
+        FfiType::Function(_) | FfiType::Callback(_) | FfiType::Reference(_) => "jlong".into(),
+        FfiType::Struct(_) => "jobject".into(),
+    }
+}
+
+/// Map a Java IR FfiType to the actual Rust type used in the FFI function signature.
+fn ffi_type_to_ffi_rust_name(ty: &FfiType) -> String {
+    match ty {
+        FfiType::Int8 => "i8".into(),
+        FfiType::UInt8 => "u8".into(),
+        FfiType::Int16 => "i16".into(),
+        FfiType::UInt16 => "u16".into(),
+        FfiType::Int32 => "i32".into(),
+        FfiType::UInt32 => "u32".into(),
+        FfiType::Int64 => "i64".into(),
+        FfiType::UInt64 => "u64".into(),
+        FfiType::Float32 => "f32".into(),
+        FfiType::Float64 => "f64".into(),
+        FfiType::Boolean => "u8".into(),
+        FfiType::String | FfiType::Bytes | FfiType::RustBuffer => "RustBuffer".into(),
+        FfiType::ForeignBytes => "ForeignBytes".into(),
+        FfiType::Handle => "uniffi::Handle".into(),
+        FfiType::RustArc | FfiType::VoidPointer => "*const std::ffi::c_void".into(),
+        FfiType::Function(name) => name.clone(),
         FfiType::Struct(name) => name.clone(),
-        FfiType::Callback(_) => "jlong".into(),
-        FfiType::Reference(_) => "jlong".into(),
+        FfiType::Callback(name) => name.clone(),
+        FfiType::Reference(inner) => format!("*const {}", ffi_type_to_ffi_rust_name(inner)),
+    }
+}
+
+/// Build a BridgeArg from an FfiArgument, computing the JNI type, FFI type, and conversion expression.
+fn bridge_arg_for_ffi(arg: &FfiArgument) -> BridgeArg {
+    let jni_type = ffi_type_to_jni_name(&arg.ty);
+    let ffi_rust_type = ffi_type_to_ffi_rust_name(&arg.ty);
+    let conv_expr = arg_conv_expr(&arg.name, &arg.ty);
+    BridgeArg {
+        name: arg.name.clone(),
+        jni_type,
+        ffi_rust_type,
+        conv_expr,
+    }
+}
+
+/// Compute the conversion expression from JNI parameter to FFI argument.
+fn arg_conv_expr(arg_name: &str, ty: &FfiType) -> String {
+    match ty {
+        // Primitives: cast from JNI type to Rust FFI type
+        FfiType::Int8 => format!("{arg_name} as i8"),
+        FfiType::UInt8 => format!("{arg_name} as u8"),
+        FfiType::Int16 => format!("{arg_name} as i16"),
+        FfiType::UInt16 => format!("{arg_name} as u16"),
+        FfiType::Int32 => format!("{arg_name} as i32"),
+        FfiType::UInt32 => format!("{arg_name} as u32"),
+        FfiType::Int64 => format!("{arg_name} as i64"),
+        FfiType::UInt64 => format!("{arg_name} as u64"),
+        FfiType::Float32 => format!("{arg_name} as f32"),
+        FfiType::Float64 => format!("{arg_name} as f64"),
+        FfiType::Boolean => format!("{arg_name} as u8"),
+        // Buffers: convert via helper (unsafe)
+        FfiType::String | FfiType::Bytes | FfiType::RustBuffer => {
+            format!("unsafe {{ jni_bytebuffer_to_rustbuffer(&mut env, {arg_name}) }}")
+        }
+        // ForeignBytes: read ByteBuffer data, create ForeignBytes (unsafe)
+        FfiType::ForeignBytes => {
+            format!("unsafe {{ jni_bytebuffer_to_foreignbytes(&mut env, {arg_name}) }}")
+        }
+        // Handle: use from_raw to create Handle from jlong
+        FfiType::Handle => format!("unsafe {{ uniffi::Handle::from_raw({arg_name} as u64).expect(\"invalid handle\") }}"),
+        // Pointers: cast jlong to pointer
+        FfiType::RustArc | FfiType::VoidPointer | FfiType::Reference(_) => {
+            format!("{arg_name} as *const std::ffi::c_void")
+        }
+        // Function/Callback: cast jlong
+        FfiType::Function(_) | FfiType::Callback(_) => {
+            format!("{arg_name} as usize")
+        }
+        // Struct: pass through
+        FfiType::Struct(_) => arg_name.to_string(),
+    }
+}
+
+/// Compute the return conversion expression from FFI return value to JNI return value.
+fn return_conv_for_ffi(ty: &FfiType) -> String {
+    match ty {
+        FfiType::Int8 | FfiType::UInt8 => "result as jbyte".into(),
+        FfiType::Int16 | FfiType::UInt16 => "result as jshort".into(),
+        FfiType::Int32 | FfiType::UInt32 => "result as jint".into(),
+        FfiType::Int64 | FfiType::UInt64 => "result as jlong".into(),
+        FfiType::Float32 => "result as jfloat".into(),
+        FfiType::Float64 => "result as jdouble".into(),
+        FfiType::Boolean => "result as jboolean".into(),
+        FfiType::String | FfiType::Bytes | FfiType::RustBuffer => {
+            "rustbuffer_to_jni_bytebuffer(&mut env, result)".into()
+        }
+        FfiType::ForeignBytes => "result".into(),
+        FfiType::Handle => "result.as_raw() as jlong".into(),
+        FfiType::RustArc | FfiType::VoidPointer | FfiType::Function(_)
+        | FfiType::Struct(_) | FfiType::Callback(_) | FfiType::Reference(_) => {
+            "result".into()
+        }
     }
 }
 

@@ -71,7 +71,7 @@
                 {%- for field in rec.fields -%}
                 "{{ field.java_name }}=" + {{ field.java_name }}{% if !loop.last %} + ", " + {% endif %}
                 {%- endfor -%}
-                ")";
+                + ")";
         }
     }
 {%- endif -%}

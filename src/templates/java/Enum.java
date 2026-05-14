@@ -7,10 +7,7 @@
      * {{ e.docstring.as_ref().unwrap() }}
      {%- endif %}
      */
-    public static sealed class {{ e.java_name }}
-        {%- for variant in e.variants %}
-        permits {{ e.java_name }}.{{ variant.java_name }}{% if !loop.last %}, {% endif %}
-        {%- endfor %} {
+    public static sealed class {{ e.java_name }} permits {% for variant in e.variants %}{{ e.java_name }}.{{ variant.java_name }}{% if !loop.last %}, {% endif %}{% endfor %} {
 
         {%- for variant in e.variants %}
         /**
@@ -39,11 +36,15 @@
 
             @Override
             public String toString() {
+                {%- if variant.fields.is_empty() %}
+                return "{{ variant.name }}()";
+                {%- else %}
                 return "{{ variant.name }}(" +
                     {%- for field in variant.fields -%}
                     {{ field.java_name }}{% if !loop.last %} + ", " + {% endif %}
                     {%- endfor -%}
-                    ")";
+                    + ")";
+                {%- endif %}
             }
         }
         {%- endfor %}

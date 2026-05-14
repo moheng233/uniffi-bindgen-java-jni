@@ -5,6 +5,7 @@
 use jni::JNIEnv;
 use jni::objects::JByteBuffer;
 use jni::sys::*;
+use uniffi::ffi::{ForeignBytes, RustBuffer};
 
 /// Convert a Rust String to a JNI jstring.
 pub fn rust_string_to_jni(env: &mut JNIEnv, s: &str) -> jstring {
@@ -40,9 +41,57 @@ pub fn vec_to_jni_bytebuffer(env: &mut JNIEnv, data: &[u8]) -> jobject {
     buf.into_raw()
 }
 
-// TODO: RustBuffer <-> JNI ByteBuffer conversions
-// These require access to RustBuffer internals or FFI functions.
-// Implementation will be completed in a future phase.
+/// Convert a JNI ByteBuffer (jobject) to a UniFFI RustBuffer.
+///
+/// Reads the data from the Java Direct ByteBuffer and copies it into
+/// a new RustBuffer owned by Rust.
+pub unsafe fn jni_bytebuffer_to_rustbuffer(
+    env: &mut JNIEnv,
+    buf: jobject,
+) -> RustBuffer {
+    let jbuf = JByteBuffer::from_raw(buf);
+    let addr = env.get_direct_buffer_address(&jbuf)
+        .expect("Failed to get direct buffer address");
+    let capacity = env.get_direct_buffer_capacity(&jbuf)
+        .expect("Failed to get direct buffer capacity");
+    let data = std::slice::from_raw_parts(addr as *const u8, capacity);
+    RustBuffer::from_vec(data.to_vec())
+}
+
+/// Convert a JNI ByteBuffer (jobject) to a UniFFI ForeignBytes.
+///
+/// This creates a ForeignBytes struct that borrows from the JNI direct buffer.
+/// The caller must ensure the JNI buffer remains alive for the duration of the call.
+pub unsafe fn jni_bytebuffer_to_foreignbytes(
+    env: &mut JNIEnv,
+    buf: jobject,
+) -> ForeignBytes {
+    let jbuf = JByteBuffer::from_raw(buf);
+    let addr = env.get_direct_buffer_address(&jbuf)
+        .expect("Failed to get direct buffer address");
+    let capacity = env.get_direct_buffer_capacity(&jbuf)
+        .expect("Failed to get direct buffer capacity");
+    ForeignBytes::from_raw_parts(addr as *const u8, capacity as i32)
+}
+
+/// Convert a UniFFI RustBuffer into a JNI Direct ByteBuffer (jobject).
+///
+/// Copies the data into a new Java-managed Direct ByteBuffer,
+/// then frees the RustBuffer.
+pub unsafe fn rustbuffer_to_jni_bytebuffer(
+    env: &mut JNIEnv,
+    rb: RustBuffer,
+) -> jobject {
+    let len = rb.len();
+    // Use data_pointer() which gives *const u8
+    let data_ptr = rb.data_pointer() as *mut u8;
+    let buf = env.new_direct_byte_buffer(data_ptr, len)
+        .expect("Failed to create direct byte buffer");
+    let result = buf.into_raw();
+    // Free the RustBuffer data
+    rb.destroy();
+    result
+}
 
 /// Convert a JNI jlong to a *const T pointer.
 pub unsafe fn jlong_to_ptr<T>(handle: jlong) -> *const T {

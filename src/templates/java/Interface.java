@@ -49,7 +49,7 @@
         @Override
         public void close() {
             if (handle != 0) {
-                {{ name }}.native_{{ obj.ffi_func_free.name() }}(handle);
+                {{ name }}.{{ obj.ffi_func_free.name() }}(handle);
                 handle = 0;
             }
         }

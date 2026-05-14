@@ -207,11 +207,11 @@ pub fn lower_code_for_arg(arg: &Argument) -> String {
             String::new()
         }
         TypeNode::String => {
-            format!("ByteBuffer {}Buf = RustBuffer.allocFromString({});",
+            format!("RustBuffer {}Buf = RustBuffer.allocFromString({});",
                 arg.java_name, arg.java_name)
         }
         TypeNode::Bytes => {
-            format!("ByteBuffer {}Buf = RustBuffer.allocFromBytes({});",
+            format!("RustBuffer {}Buf = RustBuffer.allocFromBytes({});",
                 arg.java_name, arg.java_name)
         }
         TypeNode::Object { .. } => {
@@ -260,14 +260,19 @@ pub fn lower_code_for_arg(arg: &Argument) -> String {
 /// Compute the native expression for an argument (the value to pass in the native call).
 pub fn native_expr_for_arg(arg: &Argument) -> String {
     match &arg.ty {
-        TypeNode::Int8 | TypeNode::UInt8 | TypeNode::Int16 | TypeNode::UInt16
-        | TypeNode::Int32 | TypeNode::UInt32 | TypeNode::Int64 | TypeNode::UInt64
-        | TypeNode::Float32 | TypeNode::Float64 | TypeNode::Boolean => {
+        TypeNode::Int8 | TypeNode::Int16 | TypeNode::Int32 | TypeNode::Int64
+        | TypeNode::UInt64 | TypeNode::Float32 | TypeNode::Float64 | TypeNode::Boolean => {
             arg.java_name.clone()
         }
+        TypeNode::UInt8 => format!("(byte) {}", arg.java_name),
+        TypeNode::UInt16 => format!("(short) {}", arg.java_name),
+        TypeNode::UInt32 => format!("(int) {}", arg.java_name),
         TypeNode::Object { .. } | TypeNode::CallbackInterface { .. }
         | TypeNode::External { .. } => {
             format!("{}Handle", arg.java_name)
+        }
+        TypeNode::String | TypeNode::Bytes => {
+            format!("{}Buf.asByteBuffer()", arg.java_name)
         }
         _ => {
             // String, Bytes, Record, Enum, Optional, Sequence, Map,
@@ -504,7 +509,7 @@ pub fn generate_enum_write_body(e: &Enum) -> String {
     
     if e.is_flat {
         // Flat enum: just write the variant index
-        lines.push("* Switch on the enum variant".to_string());
+        lines.push("// Switch on the enum variant".to_string());
         lines.push("if (false) {} // placeholder for variant dispatch".to_string());
         lines.push("int _size = 4;".to_string());
         lines.push("ByteBuffer _buf = ByteBuffer.allocateDirect(_size);".to_string());
@@ -525,13 +530,13 @@ pub fn generate_enum_write_body(e: &Enum) -> String {
             variant_cases.push((variant.java_name.clone(), i, case_lines));
         }
         
-        lines.push("* Compute allocation size".to_string());
+        lines.push("// Compute allocation size".to_string());
         lines.push("int _size = 4; // variant index".to_string());
         lines.push("// TODO: compute per-variant field sizes".to_string());
         lines.push("ByteBuffer _buf = ByteBuffer.allocateDirect(_size + 64);".to_string());
         lines.push("_buf.order(java.nio.ByteOrder.BIG_ENDIAN);".to_string());
         lines.push("RustBufferStream _stream = new RustBufferStream(_buf);".to_string());
-        lines.push("* Write variant dispatch".to_string());
+        lines.push("// Write variant dispatch".to_string());
         lines.push("// TODO: switch on variant type and write index + fields".to_string());
         lines.push("_buf.flip();".to_string());
         lines.push("return _buf;".to_string());
@@ -626,7 +631,7 @@ mod tests {
         let arg = make_arg("name", TypeNode::String);
         assert_eq!(
             lower_code_for_arg(&arg),
-            "ByteBuffer nameBuf = RustBuffer.allocFromString(name);"
+            "RustBuffer nameBuf = RustBuffer.allocFromString(name);"
         );
     }
 
@@ -635,7 +640,7 @@ mod tests {
         let arg = make_arg("data", TypeNode::Bytes);
         assert_eq!(
             lower_code_for_arg(&arg),
-            "ByteBuffer dataBuf = RustBuffer.allocFromBytes(data);"
+            "RustBuffer dataBuf = RustBuffer.allocFromBytes(data);"
         );
     }
 
@@ -693,6 +698,13 @@ mod tests {
     }
 
     #[test]
+    fn native_expr_unsigned_types_are_narrowed() {
+        assert_eq!(native_expr_for_arg(&make_arg("a", TypeNode::UInt8)), "(byte) a");
+        assert_eq!(native_expr_for_arg(&make_arg("b", TypeNode::UInt16)), "(short) b");
+        assert_eq!(native_expr_for_arg(&make_arg("c", TypeNode::UInt32)), "(int) c");
+    }
+
+    #[test]
     fn native_expr_object_uses_handle_suffix() {
         let arg = make_arg("obj", TypeNode::Object { namespace: "ns".into(), name: "O".into() });
         assert_eq!(native_expr_for_arg(&arg), "objHandle");
@@ -701,7 +713,7 @@ mod tests {
     #[test]
     fn native_expr_buffer_type_uses_buf_suffix() {
         let arg = make_arg("s", TypeNode::String);
-        assert_eq!(native_expr_for_arg(&arg), "sBuf");
+        assert_eq!(native_expr_for_arg(&arg), "sBuf.asByteBuffer()");
 
         let arg = make_arg("r", TypeNode::Record { namespace: "ns".into(), name: "R".into() });
         assert_eq!(native_expr_for_arg(&arg), "rBuf");

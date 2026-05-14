@@ -110,3 +110,4 @@ public final class {{ name }} {
             super(message, cause);
         }
     }
+}

@@ -250,6 +250,7 @@ pub enum FfiType {
     Bytes,
     Handle,
     RustBuffer,
+    ForeignBytes,
     RustArc,
     VoidPointer,
     Function(String),

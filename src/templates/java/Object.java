@@ -55,7 +55,7 @@
         @Override
         public void close() {
             if (handle != 0) {
-                {{ name }}.native_{{ obj.ffi_func_free.name() }}(handle);
+                {{ name }}.{{ obj.ffi_func_free.name() }}(handle);
                 handle = 0;
             }
         }
@@ -65,7 +65,7 @@
          * functions that take ownership.
          */
         public {{ obj.java_name }} clone() {
-            long newHandle = {{ name }}.native_{{ obj.ffi_func_clone.name() }}(handle);
+            long newHandle = {{ name }}.{{ obj.ffi_func_clone.name() }}(handle);
             return new {{ obj.java_name }}(newHandle);
         }
 

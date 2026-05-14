@@ -1,9 +1,11 @@
 # 项目状态 — uniffi-bindgen-java-jni
 
-**日期**: 2026-05-13
+**日期**: 2026-05-14
 **编译**: ✅ 零错误零警告（clippy clean）
 **Phase 1-7**: ✅ | **测试**: ✅ 44 个测试全部通过
-**Phase 8（使用案例）**: ✅ | **产物**: ✅ 生成的 Java + Rust 胶水代码均可编译
+**Phase 8（使用案例）**: ✅ | **产物**: ✅ Java + Rust 胶水代码均可编译
+**JNI→FFI 桥接**: ✅ 真实 FFI 调用已实现
+**端到端集成**: ✅ Java 测试代码调用 Uniffi JNI 全部通过
 
 ---
 
@@ -165,8 +167,8 @@ D:\packages\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\
 
 ## 下一步工作建议（按优先级）
 
-1. **JNI Bridge 实现** — 当前 `jni_bridge.rs` 使用 `unimplemented!()` stub，需要实现真实的 JNI→FFI 类型转换和函数调用
-2. **RustBuffer ↔ JNI ByteBuffer 转换** — `jni_types.rs` 中 RustBuffer 转换函数需要访问 uniffi 内部 API 或 FFI 函数
+1. **消减 JNI bridge warnings** — 优化模板以消除 unnecessary unsafe、unused_mut、unused_variable 等警告
+2. **RustBuffer ↔ JNI ByteBuffer 转换完善** — `jni_types.rs` 中 `jni_bytebuffer_to_rustbuffer` 需用 FFI 函数（`ffi_*_rustbuffer_alloc`）而非直接构造 RustBuffer
 3. **Callback Interface VTable 生成** — 双向 JNI 调用（VTable dispatch）
 4. **填充 stub 文件** — 按需激活 16 个 pipeline/gen_java stub 文件
 5. **端到端测试** — fixture crate + Java 代码 + Gradle 编译
@@ -194,5 +196,11 @@ D:\packages\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\
 - **FfiDefinition::Struct 在 convert_ffi_definition 中返回 `Ok(None)`** — VTable struct 由 callback 代码生成处理
 - **模板渲染产物末尾换行符问题** — 通过 `normalize_content()` 函数修剪尾部空白，确保 TOML 文件和 Rust 文件末尾格式正确
 - **Cargo.toml 路径** — 主 crate 依赖路径使用正斜杠（TOML 兼容），Rust `use` 语句使用下划线形式的 crate 名
-- **jni_bridge.rs 当前为 stub 实现** — 所有 JNI 函数体为 `unimplemented!()`，待后续实现真实的 FFI 调用
-- **future 函数过滤** — 当 `async_fn_count == 0` 时，跳过 `rust_future_*` 相关的 FFI 桥接函数生成
+- **jni_bridge.rs 已实现真实 FFI 调用** — JNI→FFI 桥接含 Handle、RustBuffer、ForeignBytes、原语类型转换，通过端到端 Java 测试验证
+- **JNI 方法名下划线转义** — `modules.rs` 中 `convert_ffi_definition()` 将 FFI 方法名之下划线 `_` 转为 `_1`，以合 JNI 命名规范
+- **Java 内嵌类用 `static`** — RustBuffer、RustBufferStream、HandleMap、Helpers 均声明为 `public static final class`，使可在静态上下文中引用
+- **无符号类型参数收窄** — `native_expr_for_arg()` 对 UInt8/UInt16/UInt32 生成显式强制转换 `(byte)/(short)/(int)`
+- **String/Bytes lowering 返回 RustBuffer** — `lower_code_for_arg()` 对 String/Bytes 返回 `RustBuffer` 类型（非 ByteBuffer），native 调用处用 `.asByteBuffer()` 转换
+- **对象 free/clone 桥接函数** — `_fn_free_` 和 `_fn_clone_` 不再被过滤，正常生成 JNI 桥接代码
+- **测试入口文件位于 `TestSimple.java`** — 含顶层函数、Calculator 对象、Record、Enum 之完整验证
+- **运行命令** — `java "-Djava.library.path=examples/simple/generated/rust-glue/target/debug" -cp "examples/simple/generated/java;." TestSimple`

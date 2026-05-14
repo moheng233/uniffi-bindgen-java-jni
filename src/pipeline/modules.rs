@@ -17,6 +17,16 @@ pub fn convert_namespace(
     let imports: Vec<String> = vec![
         "java.nio.ByteBuffer".to_string(),
         "java.nio.ByteOrder".to_string(),
+        "java.nio.charset.StandardCharsets".to_string(),
+        "java.time.Duration".to_string(),
+        "java.time.Instant".to_string(),
+        "java.util.ArrayList".to_string(),
+        "java.util.HashMap".to_string(),
+        "java.util.List".to_string(),
+        "java.util.Map".to_string(),
+        "java.util.Optional".to_string(),
+        "java.util.concurrent.ConcurrentHashMap".to_string(),
+        "java.util.concurrent.atomic.AtomicLong".to_string(),
     ];
 
     let mut functions: Vec<Function> = namespace
@@ -25,8 +35,8 @@ pub fn convert_namespace(
         .map(convert_function)
         .collect::<Result<Vec<_>>>()?;
 
-    // Generate method bodies for functions
-    let class_name = to_upper_camel_case(&namespace.name);
+    // Generate method bodies for functions against the generated wrapper class name.
+    let class_name = namespace.name.clone();
     for func in &mut functions {
         func.body = body_gen::generate_function_body(func, &class_name);
     }
@@ -411,11 +421,15 @@ fn convert_ffi_definition(
             Ok(None)
         }
         general::FfiDefinition::RustFunction(func) => {
+            // JNI naming: Java_<package>_<ClassName>_<method>
+            // Class name is the namespace name (not upper-camel-cased).
+            // Method name must have underscores escaped as _1 per JNI spec.
+            let jni_method = func.name.0.replace('_', "_1");
             let jni_name = format!(
                 "Java_{}_{}_{}",
                 _package_name.replace('.', "_"),
-                to_upper_camel_case(_namespace),
-                func.name.0
+                _namespace,
+                jni_method
             );
             Ok(Some(FfiDefinition::RustFunction(FfiFunction {
                 name: func.name.0.clone(),
@@ -450,7 +464,7 @@ fn convert_ffi_type(ffi: &general::FfiType) -> FfiType {
         general::FfiType::Float32 => FfiType::Float32,
         general::FfiType::Float64 => FfiType::Float64,
         general::FfiType::RustBuffer(_) => FfiType::RustBuffer,
-        general::FfiType::ForeignBytes => FfiType::VoidPointer,
+        general::FfiType::ForeignBytes => FfiType::ForeignBytes,
         general::FfiType::Function(name) => FfiType::Function(name.0.clone()),
         general::FfiType::Struct(name) => FfiType::Struct(name.0.clone()),
         general::FfiType::Handle(_) => FfiType::Handle,
