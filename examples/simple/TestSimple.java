@@ -4,6 +4,7 @@
 
 import com.example.uniffi.simple;
 import com.example.uniffi.simple.Calculator;
+import com.example.uniffi.simple.CalculatorListener;
 import com.example.uniffi.simple.MyData;
 import com.example.uniffi.simple.Color;
 import com.example.uniffi.simple.Shape;
@@ -90,6 +91,82 @@ public class TestSimple {
         System.out.println("Shape.Rectangle(3,4)   = " + rect);
         System.out.println("Shape.Point()          = " + point);
         System.out.println("  Enum：通过 ✅");
+        System.out.println();
+
+        // ---- 6. 测试 Callback Interface (CalculatorListener) ----
+        System.out.println("--- 6. Callback Interface (CalculatorListener) ---");
+
+        // 6a. 创建一个 Java 实现并使用 FfiConverter 注册
+        CalculatorListener listener = new CalculatorListener() {
+            private String lastOperation = "";
+            private long lastValue = 0;
+            private int onCalculationCalls = 0;
+            private int onResetCalls = 0;
+
+            @Override
+            public void onCalculation(String operation, long value) {
+                lastOperation = operation;
+                lastValue = value;
+                onCalculationCalls++;
+                System.out.println("  [callback] onCalculation(\"" + operation + "\", " + value + ")");
+            }
+
+            @Override
+            public void onReset() {
+                onResetCalls++;
+                System.out.println("  [callback] onReset()");
+            }
+        };
+
+        // 6b. 注册回调（通过 FfiConverter.lower 写入 HandleMap）
+        long handle = simple.FfiConverterCalculatorListener.INSTANCE.lower(listener);
+        System.out.println("FfiConverter.lower(listener) → handle = " + handle);
+        assert handle > 0 : "回调注册失败：handle 应为正数";
+
+        // 6c. 通过 FfiConverter.lift 取回
+        CalculatorListener lifted = simple.FfiConverterCalculatorListener.INSTANCE.lift(handle);
+        assert lifted == listener : "回调 lift 失败：应返回同一个实例";
+        System.out.println("FfiConverter.lift(handle) → " + (lifted == listener ? "同一个实例 ✅" : "失败 ❌"));
+
+        // 6d. 测试 write/read（ByteBuffer 序列化）
+        java.nio.ByteBuffer buf = java.nio.ByteBuffer.allocateDirect(8);
+        buf.order(java.nio.ByteOrder.BIG_ENDIAN);
+        simple.FfiConverterCalculatorListener.INSTANCE.write(listener, buf);
+        buf.flip();
+        CalculatorListener readBack = simple.FfiConverterCalculatorListener.INSTANCE.read(buf);
+        assert readBack == listener : "回调 read 失败：应返回同一个实例";
+        System.out.println("FfiConverter.write() + read() 往返 → 通过 ✅");
+
+        // 6e. 测试 allocationSize
+        int allocSize = simple.FfiConverterCalculatorListener.INSTANCE.allocationSize(listener);
+        assert allocSize == 8 : "allocationSize 应为 8";
+        System.out.println("allocationSize = " + allocSize + " → 通过 ✅");
+
+        // 6f. 测试通过 registerCalculatorListener() default 方法注册
+        CalculatorListener listener2 = new CalculatorListener() {
+            @Override public void onCalculation(String op, long val) {}
+            @Override public void onReset() {}
+        };
+        long handle2 = listener2.registerCalculatorListener();
+        System.out.println("listener.registerCalculatorListener() → handle = " + handle2);
+        assert handle2 > 0 && handle2 != handle : "registerCalculatorListener 失败";
+
+        // 6g. 直接调用静态回调分发方法（模拟 Rust→JNI→Java 路径）
+        System.out.println("直接调用 callback 分发方法:");
+        simple.callbackCalculatorListener_onCalculation(handle, "add", 42);
+        simple.callbackCalculatorListener_onCalculation(handle, "multiply", 99);
+        simple.callbackCalculatorListener_onReset(handle);
+
+        // 6h. 验证无效 handle 会抛异常
+        try {
+            simple.callbackCalculatorListener_onCalculation(99999, "bad", 0);
+            System.err.println("  ❌ 无效 handle 应抛异常！");
+            assert false : "应抛异常";
+        } catch (RuntimeException e) {
+            System.out.println("  无效 handle → 正确抛异常: " + e.getMessage().substring(0, Math.min(40, e.getMessage().length())) + "...");
+        }
+
+        System.out.println("  Callback Interface：全部通过 ✅");
         System.out.println();
 
         System.out.println("========================================");

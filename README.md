@@ -1,30 +1,54 @@
-# uniffi-bindgen-java-jna
+# uniffi-bindgen-java-jni
 
-为 [UniFFI](https://github.com/mozilla/uniffi-rs) 实现独立的 Java JNI 外部绑定生成器。
+[![License](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-nightly-orange.svg)](rust-toolchain.toml)
+[![Java](https://img.shields.io/badge/java-21%2B-red.svg)](#)
+[![Status](https://img.shields.io/badge/status-active-brightgreen.svg)](STATUS.md)
+[![Tests](https://img.shields.io/badge/tests-45%20passed-success.svg)](#)
+[![Clippy](https://img.shields.io/badge/clippy-clean-success.svg)](#)
 
-从 Rust UDL/CDylib 中读取 UniFFI 元数据，经 Pipeline 架构（initial IR → general IR → Java IR）转换，通过 Askama 模板渲染，**双产物输出**——
-生成 Java native 代码及 Rust JNI 胶水库，使 Java 可通过 JNI 直接调用 Rust 导出的 UniFFI 接口。
+A standalone Java JNI external binding generator for [UniFFI](https://github.com/mozilla/uniffi-rs).
 
-## 架构
+Reads UniFFI metadata from Rust UDL/cdylib, transforms it through a Pipeline architecture
+(initial IR → general IR → Java IR), renders via Askama templates, and produces **dual output** —
+Java native source files and a Rust JNI glue crate — enabling Java to call Rust-exported
+UniFFI interfaces directly through JNI.
+
+> **Repository**: [moheng233/uniffi-bindgen-java-jni](https://github.com/moheng233/uniffi-bindgen-java-jni)
+
+For the Chinese version, see [README.cn.md](README.cn.md).
+
+## Architecture
 
 ```
-用户 cdylib / UDL
+User cdylib / UDL
     │  BindgenLoader::load_metadata()
-uniffi_meta 元数据
+uniffi_meta metadata
     │  general_pipeline()
 general IR
     │  convert_to_java_root()
-Java IR  ──┬──▶ gen_java  (Askama → Java 源文件)
-           └──▶ gen_rust  (Askama → Rust JNI 胶水库)
+Java IR  ──┬──▶ gen_java  (Askama → Java source files)
+           └──▶ gen_rust  (Askama → Rust JNI glue crate)
 ```
 
-## 使用
+## Supported Types
 
-### 1) 编写 UDL 及 Rust 实现
+| Category | Types |
+|----------|-------|
+| Primitives | `i8`–`i64`, `u8`–`u64`, `f32`, `f64`, `bool` |
+| Strings & Bytes | `string`, `bytes` |
+| Records | `dictionary` / `record` with full `write()`/`read()` serialization |
+| Enums | Flat enums and enums with associated data |
+| Objects | Constructors, methods, destructors (free), clone |
+| Callback Interfaces | Trait implemented by Java, called from Rust — full VTable + JNI round-trip |
 
-参见 `examples/simple/` —— 含 `src/simple.udl`、`src/lib.rs`、`Cargo.toml`、`build.rs`。
+## Usage
 
-### 2) 运行生成器
+### 1) Write UDL and Rust implementation
+
+See `examples/simple/` — contains `src/simple.udl`, `src/lib.rs`, `Cargo.toml`, `build.rs`.
+
+### 2) Run the generator
 
 ```powershell
 cargo run -- `
@@ -35,22 +59,25 @@ cargo run -- `
   --main-crate-path examples/simple
 ```
 
-- `--source`：UDL 文件路径
-- `--config`：uniFFI 配置文件，含 `[bindings.java]` 段（package_name、cdylib_name）
-- `--java-out-dir`：Java 代码输出目录
-- `--rust-out-dir`：Rust JNI 胶水库输出目录
-- `--main-crate-path`：主 crate 根目录（胶水库 Cargo.toml 依赖之）
+| Flag | Description |
+|------|-------------|
+| `--source` | Path to the UDL file |
+| `--config` | UniFFI config file with `[bindings.java]` section (`package_name`, `cdylib_name`) |
+| `--java-out-dir` | Output directory for Java source files |
+| `--rust-out-dir` | Output directory for the Rust JNI glue crate |
+| `--main-crate-path` | Root directory of the main crate (used as dependency in glue Cargo.toml) |
+| `--crate` | (Optional) Limit generation to a single crate |
 
-### 3) 构建胶水库
+### 3) Build the glue crate
 
 ```powershell
 cd examples/simple/generated/rust-glue
 cargo build
 ```
 
-产物为 `target/debug/uniffi_example_simple.dll`（Linux: `.so`，macOS: `.dylib`）。
+Produces `target/debug/uniffi_example_simple.dll` (`.so` on Linux, `.dylib` on macOS).
 
-### 4) 编译并运行 Java 测试
+### 4) Compile and run Java tests
 
 ```powershell
 cd examples/simple
@@ -59,26 +86,32 @@ java "-Djava.library.path=generated/rust-glue/target/debug" `
      -cp "generated/java;." TestSimple
 ```
 
-输出示例：
+Sample output:
 
 ```
-=== UniFFI JNI 绑定测试 ===
+=== UniFFI JNI Binding Test ===
 
---- 1. 顶层函数 ---
+--- 1. Top-level Functions ---
 add(10, 20) = 30
 multiply(6, 7) = 42
-greet("世界") = Hello, 世界!
+greet("World") = Hello, World!
 
---- 2. Calculator 对象 ---
+--- 2. Calculator Object ---
 calc.add(50) = 150
 calc.getValue() = 120
-calc.processData(MyData(5, "测试数据")) = MyData(125, "processed: 测试数据")
+calc.processData(MyData(5, "test")) = MyData(125, "processed: test")
 
-    ...
-   全部测试通过！🎉
+--- 6. Callback Interface (CalculatorListener) ---
+FfiConverter.lower(listener) → handle = 1
+  [callback] onCalculation("add", 42)
+  [callback] onCalculation("multiply", 99)
+
+========================================
+   All tests passed! 🎉
+========================================
 ```
 
-## 配置 (uniffi.toml)
+## Configuration (uniffi.toml)
 
 ```toml
 [bindings.java]
@@ -86,15 +119,21 @@ package_name = "com.example.uniffi"
 cdylib_name = "uniffi_example_simple"
 ```
 
-| 项 | 说明 | 默认值 |
-|---|---|---|
-| `package_name` | Java package 名 | `uniffi.{namespace}` |
-| `cdylib_name` | `System.loadLibrary()` 加载的库名 | namespace 名 |
-| `custom_types` | 自定义类型映射（可选） | 无 |
+| Key | Description | Default |
+|-----|-------------|---------|
+| `package_name` | Java package name | `uniffi.{namespace}` |
+| `cdylib_name` | Library name for `System.loadLibrary()` | Namespace name |
+| `custom_types` | Custom type mappings (optional) | None |
 
-## 项目状态
+## Project Status
 
-- **编译**：零错误
-- **测试**：45 个 Rust 单元测试 + Java 端到端测试，全部通过
-- **支持类型**：原语、String、Bytes、Record、Enum、Object（含构造器/方法/析构）、Callback Interface（部分）
-- **平台**：Windows / Linux / macOS
+- **Build**: 0 errors, 0 warnings (clippy clean)
+- **Tests**: 45 Rust unit tests + Java end-to-end tests, all passing
+- **Platforms**: Windows / Linux / macOS
+- **Java**: 21+ (requires `java.nio.ByteBuffer` direct buffers)
+- **Rust**: nightly toolchain (required by UniFFI 0.31)
+
+## License
+
+This project is a standalone external binding generator for UniFFI.
+See [UniFFI](https://github.com/mozilla/uniffi-rs) for upstream licensing.

@@ -10,6 +10,9 @@ crate-type = ["cdylib"]
 [dependencies]
 jni = "0.21"
 uniffi = "0.31"
+{% if has_callbacks %}
+once_cell = "1.20"
+{% endif %}
 {%- if let Some(path) = main_crate_path %}
 # Main crate dependency (path provided via --main-crate-path)
 {{ main_crate_name }} = { path = "{{ path }}" }

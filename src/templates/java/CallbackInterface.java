@@ -38,7 +38,7 @@
     }
 
     // Converter for callback interface
-    static final class FfiConverter{{ cbi.java_name }} implements
+    public static final class FfiConverter{{ cbi.java_name }} implements
             FfiConverter<{{ cbi.java_name }}, Long> {
 
         public static final FfiConverter{{ cbi.java_name }} INSTANCE =
@@ -46,14 +46,12 @@
 
         @Override
         public {{ cbi.java_name }} lift(Long handle) {
-            // TODO: look up in handle map
-            throw new RuntimeException("TODO: implement lift for callback {{ cbi.name }}");
+            return handleMap{{ cbi.java_name }}.get(handle);
         }
 
         @Override
         public Long lower({{ cbi.java_name }} value) {
-            // TODO: insert into handle map
-            throw new RuntimeException("TODO: implement lower for callback {{ cbi.name }}");
+            return handleMap{{ cbi.java_name }}.insert(value);
         }
 
         @Override

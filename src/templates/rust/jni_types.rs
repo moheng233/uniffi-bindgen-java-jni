@@ -109,6 +109,47 @@ pub unsafe fn rustbuffer_to_jni_bytebuffer(
     result
 }
 
+/// Convert a UniFFI RustBuffer (containing UTF-8 bytes) to a JNI jstring.
+pub unsafe fn rustbuffer_to_jni_string(
+    env: &mut JNIEnv,
+    rb: RustBuffer,
+) -> jstring {
+    let len = rb.len();
+    if len == 0 {
+        return env.new_string("")
+            .expect("Failed to create Java string")
+            .into_raw();
+    }
+    let data = std::slice::from_raw_parts(rb.data_pointer(), len);
+    let s = std::str::from_utf8(data)
+        .expect("RustBuffer does not contain valid UTF-8");
+    let result = env.new_string(s)
+        .expect("Failed to create Java string")
+        .into_raw();
+    rb.destroy();
+    result
+}
+
+/// Convert a JNI jstring to a UniFFI RustBuffer.
+pub unsafe fn jni_string_to_rustbuffer(
+    env: &mut JNIEnv,
+    s: jstring,
+) -> RustBuffer {
+    let jstr = jni::objects::JString::from_raw(s);
+    let java_str = env.get_string(&jstr)
+        .expect("Failed to read Java string");
+    let s: &str = java_str.to_str()
+        .expect("Invalid UTF-8 in Java string");
+    let bytes = s.as_bytes();
+    
+    let mut call_status = RustCallStatus::default();
+    let rb = uniffi::ffi::uniffi_rustbuffer_alloc(bytes.len() as u64, &mut call_status);
+    if !bytes.is_empty() {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), rb.data_pointer() as *mut u8, bytes.len());
+    }
+    rb
+}
+
 /// Convert a JNI jlong to a *const T pointer.
 pub unsafe fn jlong_to_ptr<T>(handle: jlong) -> *const T {
     handle as *const T

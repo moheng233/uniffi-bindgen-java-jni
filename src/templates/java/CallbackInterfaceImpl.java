@@ -6,10 +6,9 @@
     private static final HandleMap<{{ cbi.java_name }}> handleMap{{ cbi.java_name }}
         = new HandleMap<>();
 
-    static long register{{ cbi.java_name }}({{ cbi.java_name }} impl) {
+    public static long register{{ cbi.java_name }}({{ cbi.java_name }} impl) {
         long handle = handleMap{{ cbi.java_name }}.insert(impl);
-        {# TODO: create VTable and pass to Rust init callback #}
-        // {{ cbi.ffi_init_callback.name() }}(handle, vtable);
+        // VTable is initialized automatically by JNI_OnLoad via register_callbacks()
         return handle;
     }
 
@@ -19,7 +18,7 @@
      * a method on the callback interface.
      */
     {%- for method in cbi.methods %}
-    static {% match method.return_type %}{% when Some with (ret) %}{{ ret|java_type }}{% when None %}void{% endmatch %} callback{{ cbi.java_name }}_{{ method.java_name }}(
+    public static {% match method.return_type %}{% when Some with (ret) %}{{ ret|java_type }}{% when None %}void{% endmatch %} callback{{ cbi.java_name }}_{{ method.java_name }}(
             long handle
             {%- for arg in method.arguments -%}
             , {{ arg.ty|java_type }} {{ arg.java_name }}

@@ -1,5 +1,5 @@
 [package]
-name = "uniffi-bindgen-java-jna"
+name = "uniffi-bindgen-java-jni"
 version = "0.1.0"
 edition = "2024"
 

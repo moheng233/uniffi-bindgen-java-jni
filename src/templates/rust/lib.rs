@@ -14,7 +14,9 @@ pub extern "system" fn JNI_OnLoad(
 ) -> jni::sys::jint {
     {% if has_callbacks %}
     // Store JavaVM reference for callback support
-    // TODO: initialize callback infrastructure
+    crate::jni_callback::store_jvm(&vm);
+    // Register all callback VTables with UniFFI
+    crate::jni_callback::register_callbacks();
     {% endif %}
     jni::sys::JNI_VERSION_1_8
 }

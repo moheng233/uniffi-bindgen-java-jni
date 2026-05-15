@@ -25,7 +25,7 @@
 | 3 | gen_java、gen_rust 入口层 | ✅ | 可编译、可调用 |
 | 4 | Java 模板 | ✅ | 12 个模板全部填充，wrapper.java 使用 {% include %} 集成 |
 | 5 | Rust 胶水模板 | ✅ | 5 个 Askama 模板激活，JNI 桥接实现 |
-| 6 | Callback Interface + JNI 桥接 | ✅ | CallbackInterface 模板就位，jni_bridge.rs 真实 FFI 调用已实现 |
+| 6 | Callback Interface + VTable | ✅ | VTable 结构体（repr(C)）生成，Rust→JNI→Java 回调链路完整 |
 | 7 | CLI 完善 | ✅ | 参数解析、config 解析（`[bindings.java]` 段）、`--main-crate-path` 支持 |
 | 8 | 使用案例 / 集成验证 | ✅ | `examples/simple/` 含 cdylib + UDL，Java 端到端测试通过 |
 
@@ -101,7 +101,7 @@ Java IR (src/pipeline/nodes.rs)
 | `src/gen_rust/cargo_toml.rs` | ✅ | Askama：`CargoTomlTemplate`（含 main_crate_path） |
 | `src/gen_rust/jni_types.rs` | ✅ | Askama：`JniTypesTemplate`（`jni_bytebuffer_to_rustbuffer` 已改用 `uniffi_rustbuffer_alloc` FFI 分配） |
 | `src/gen_rust/jni_func.rs` | ✅ | `jni_func_name` / `jni_ctor_name` 工具函数 |
-| `src/gen_rust/callback_gen.rs` | ✅ | Askama：`JniCallbackTemplate` |
+| `src/gen_rust/callback_gen.rs` | ✅ | Askama：`JniCallbackTemplate`（提取 CallbackInterface 数据、生成 VTable + JNI 回调代码） |
 
 ### Java 模板（src/templates/java/）
 
@@ -118,18 +118,18 @@ Java IR (src/pipeline/nodes.rs)
 | `Interface.java` | ✅ | Trait 对象 — Impl 方法使用预计算 body |
 | `Record.java` | ✅ | 数据记录 — 包含完整 write()/read() 序列化逻辑 |
 | `Enum.java` | ✅ | 枚举 — 包含 write()/read() 变体分发逻辑 |
-| `CallbackInterface.java` | ✅ | 回调接口定义 include 模板（TODO: VTable） |
+| `CallbackInterface.java` | ✅ | 回调接口定义 + FfiConverter（lift/lower 通过 HandleMap） |
 | `CallbackInterfaceImpl.java` | ✅ | 回调实现（HandleMap + 回调方法分发）
 
 ### Rust 模板（src/templates/rust/）
 
 | 文件 | 状态 | 内容 |
 |------|------|------|
-| `cargo_toml.rs` | ✅ | Cargo.toml 模板 |
-| `lib.rs` | ✅ | lib.rs 模板（JNI_OnLoad + 模块声明） |
+| `cargo_toml.rs` | ✅ | Cargo.toml 模板（含 `once_cell` 条件依赖） |
+| `lib.rs` | ✅ | lib.rs 模板（JNI_OnLoad → store_jvm + register_callbacks） |
 | `jni_bridge.rs` | ✅ | JNI→FFI 桥接（`#![allow(unused_unsafe)]`，`needs_env` 条件化 env 参数，`return_conv_unsafe` 区分） |
 | `jni_types.rs` | ✅ | JNI↔Rust 类型转换（RustBuffer 分配经 `uniffi_rustbuffer_alloc`） |
-| `jni_callback.rs` | ✅ | Callback Interface JNI 回调模板 |
+| `jni_callback.rs` | ✅ | VTable + Rust→JNI 回调函数（handle 管理、free/clone/method 回调、JNI 调用） |
 
 ### Stub 文件（待后续实现）
 
@@ -167,7 +167,7 @@ D:\packages\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\
 
 ## 下一步工作建议（按优先级）
 
-1. **Callback Interface VTable 生成** — 双向 JNI 调用（VTable dispatch），Java 端 `CallbackInterfaceImpl.java` 已有骨架
+1. ~~**Callback Interface VTable 生成**~~ ✅ 已完成 — `jni_callback.rs` 模板生成 VTable + Rust→JNI 回调函数，`JNI_OnLoad` 自动注册
 2. **填充 stub 文件** — 按需激活 8 个 pipeline stub + 8 个 gen_java stub（共 16 个占位文件）
 3. **UniFFI fixture 测试集成** — 对 uniffi-rs 官方 fixture crate 运行生成器，验证覆盖所有类型
 4. **RustCallStatus 错误处理润色** — `jni_bridge.rs` 中完善错误码传播
@@ -205,6 +205,13 @@ D:\packages\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\
 ### RustBuffer 转换
 - **分配走 FFI** — `jni_bytebuffer_to_rustbuffer` 用 `uniffi::ffi::uniffi_rustbuffer_alloc` + `copy_nonoverlapping`，不直接用 `RustBuffer::from_vec()`
 - **`RustBuffer.data` 是 `pub(crate)`** — 写入用 `data_pointer() as *mut u8`
+
+### VTable 回调
+- **VTable 结构体** — 胶水库自行定义 `#[repr(C)]` 结构体（含 `Option<unsafe extern "C" fn(...)>` 字段），不依赖主 crate 导出类型；free/clone 字段用具体函数签名，方法字段用 `*const c_void`
+- **回调注册** — `JNI_OnLoad` → `store_jvm(&vm)` → `register_callbacks()` → 调用 `extern "C" { fn init_callback_vtable_*(vtable: *const c_void) }`
+- **JVM 存储** — 用 `static mut JVM_PTR: *mut JavaVM` 存储原始指针（避免 `Clone` trait 问题）；`get_jvm()` 通过 `JavaVM::from_raw()` 恢复
+- **回调流程** — Rust 调用 VTable 函数指针 → 胶水库 `extern "C"` 回调函数 → `attach_current_thread()` → 通过 handle 查找 GlobalRef → JNI `call_static_method` → Java `callback*` 方法 → Java HandleMap 查找实现
+- **JNI 对象生命周期** — String/Buffer 类型通过 let 绑定保持 JNI 对象存活至 JValue 数组引用结束后
 
 ### 类型转换（modules.rs）
 - **`TypeDefinition::Simple/Optional/Sequence/Map/Custom/External`** → `convert_type_definition` 返回 `Ok(None)`（不需要独立 Java 类）
