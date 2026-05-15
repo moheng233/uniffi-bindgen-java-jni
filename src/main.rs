@@ -2,7 +2,7 @@ use camino::Utf8PathBuf;
 use clap::Parser;
 use uniffi_bindgen::{BindgenLoader, BindgenPaths};
 
-use uniffi_bindgen_java_jna::pipeline::config::{self, JavaConfig};
+use uniffi_bindgen_java_jni::pipeline::config::{self, JavaConfig};
 
 /// Java JNI bindings generator for UniFFI.
 ///
@@ -63,7 +63,7 @@ fn main() -> anyhow::Result<()> {
     let loader = BindgenLoader::new(paths);
 
     // Generate bindings
-    uniffi_bindgen_java_jna::generate_java_jni_bindings(
+    uniffi_bindgen_java_jni::generate_java_jni_bindings(
         &loader,
         &cli.source,
         &cli.java_out_dir,
