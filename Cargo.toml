@@ -10,6 +10,10 @@ documentation = "https://github.com/moheng233/uniffi-bindgen-java-jni"
 keywords = ["uniffi", "ffi", "bindings", "java", "jni"]
 categories = ["development-tools::ffi", "api-bindings"]
 readme = "README.md"
+exclude = [
+    "PLAN.md",
+    "STATUS.md"
+]
 
 [dependencies]
 anyhow = "1.0.102"
