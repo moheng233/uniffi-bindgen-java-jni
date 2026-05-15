@@ -2,6 +2,14 @@
 name = "uniffi-bindgen-java-jni"
 version = "0.1.0"
 edition = "2024"
+description = "A standalone Java JNI external binding generator for UniFFI. Generates Java native source files and a Rust JNI glue crate from UniFFI metadata, enabling Java to call Rust-exported UniFFI interfaces via JNI."
+license = "MPL-2.0"
+repository = "https://github.com/moheng233/uniffi-bindgen-java-jni"
+homepage = "https://github.com/moheng233/uniffi-bindgen-java-jni"
+documentation = "https://github.com/moheng233/uniffi-bindgen-java-jni"
+keywords = ["uniffi", "ffi", "bindings", "java", "jni"]
+categories = ["development-tools::ffi", "api-bindings"]
+readme = "README.md"
 
 [dependencies]
 anyhow = "1.0.102"
