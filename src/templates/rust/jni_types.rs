@@ -5,7 +5,7 @@
 use jni::JNIEnv;
 use jni::objects::JByteBuffer;
 use jni::sys::*;
-use uniffi::ffi::{ForeignBytes, RustBuffer};
+use uniffi::ffi::{ForeignBytes, RustBuffer, RustCallStatus};
 
 /// Convert a Rust String to a JNI jstring.
 pub fn rust_string_to_jni(env: &mut JNIEnv, s: &str) -> jstring {
@@ -43,8 +43,13 @@ pub fn vec_to_jni_bytebuffer(env: &mut JNIEnv, data: &[u8]) -> jobject {
 
 /// Convert a JNI ByteBuffer (jobject) to a UniFFI RustBuffer.
 ///
-/// Reads the data from the Java Direct ByteBuffer and copies it into
-/// a new RustBuffer owned by Rust.
+/// Allocates the RustBuffer via the UniFFI FFI allocator (`uniffi_rustbuffer_alloc`)
+/// rather than directly constructing one. This ensures proper integration with
+/// UniFFI's memory management and `rust_call` error handling.
+///
+/// # Safety
+/// `buf` must be a valid JNI DirectByteBuffer. The caller must ensure the JNI
+/// environment is valid for the current thread.
 pub unsafe fn jni_bytebuffer_to_rustbuffer(
     env: &mut JNIEnv,
     buf: jobject,
@@ -54,8 +59,19 @@ pub unsafe fn jni_bytebuffer_to_rustbuffer(
         .expect("Failed to get direct buffer address");
     let capacity = env.get_direct_buffer_capacity(&jbuf)
         .expect("Failed to get direct buffer capacity");
-    let data = std::slice::from_raw_parts(addr as *const u8, capacity);
-    RustBuffer::from_vec(data.to_vec())
+
+    // Allocate via UniFFI FFI allocator (goes through rust_call for error handling)
+    let mut call_status = RustCallStatus::default();
+    let rb = uniffi::ffi::uniffi_rustbuffer_alloc(capacity as u64, &mut call_status);
+
+    // Copy data from the JNI direct buffer into the new RustBuffer
+    if capacity > 0 {
+        let src = unsafe { std::slice::from_raw_parts(addr as *const u8, capacity) };
+        unsafe {
+            std::ptr::copy_nonoverlapping(src.as_ptr(), rb.data_pointer() as *mut u8, capacity);
+        }
+    }
+    rb
 }
 
 /// Convert a JNI ByteBuffer (jobject) to a UniFFI ForeignBytes.

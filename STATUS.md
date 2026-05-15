@@ -1,11 +1,9 @@
 # 项目状态 — uniffi-bindgen-java-jni
 
-**日期**: 2026-05-14
-**编译**: ✅ 零错误零警告（clippy clean）
-**Phase 1-7**: ✅ | **测试**: ✅ 45 个测试全部通过
-**Phase 8（使用案例）**: ✅ | **产物**: ✅ Java + Rust 胶水代码均可编译，零警告
-**JNI→FFI 桥接**: ✅ 真实 FFI 调用已实现
-**端到端集成**: ✅ Java 测试代码调用 Uniffi JNI 全部通过
+**日期**: 2026-05-15
+**编译**: ✅ 零错误零警告（clippy clean）| **测试**: ✅ 45 个测试全部通过
+**Phase 1-7**: ✅ | **产物**: ✅ Java + Rust 胶水代码均零警告编译
+**端到端**: ✅ `examples/simple/` Java 测试全部通过
 
 ---
 
@@ -29,6 +27,7 @@
 | 5 | Rust 胶水模板 | ✅ | 5 个 Askama 模板激活，JNI 桥接实现 |
 | 6 | Callback Interface + JNI 桥接 | ✅ | CallbackInterface 模板就位，jni_bridge.rs 真实 FFI 调用已实现 |
 | 7 | CLI 完善 | ✅ | 参数解析、config 解析（`[bindings.java]` 段）、`--main-crate-path` 支持 |
+| 8 | 使用案例 / 集成验证 | ✅ | `examples/simple/` 含 cdylib + UDL，Java 端到端测试通过 |
 
 ---
 
@@ -96,10 +95,11 @@ Java IR (src/pipeline/nodes.rs)
 | `src/pipeline/nodes.rs` | ✅ | Java IR 全部节点，`RustFfiFunctionName` 含 `.name()` 方法 |
 | `src/pipeline/modules.rs` | ✅ | 所有 `convert_*` 函数，general→Java 转换 + 14 个单元测试 |
 | `src/pipeline/filters.rs` | ✅ | `ffi_type_java` / `java_type` 等 6 个 Askama 过滤器 + 已提取 `_str` 纯函数 + 22 个单元测试 |
+| `src/pipeline/body_gen.rs` | ✅ | Java 方法体预计算（lower→native→lift），模板用 `{{ func.body }}` 输出 |
 | `src/gen_java/mod.rs` | ✅ | `generate_java_code()` + `JavaCodeOracle`，渲染 wrapper.java |
 | `src/gen_rust/mod.rs` | ✅ | 全部改用 Askama 模板渲染（含 `ffi_type_rust_name` 辅助函数） |
 | `src/gen_rust/cargo_toml.rs` | ✅ | Askama：`CargoTomlTemplate`（含 main_crate_path） |
-| `src/gen_rust/jni_types.rs` | ✅ | Askama：`JniTypesTemplate`（含 `raw_to_jni_bytebuffer` 辅助） |
+| `src/gen_rust/jni_types.rs` | ✅ | Askama：`JniTypesTemplate`（`jni_bytebuffer_to_rustbuffer` 已改用 `uniffi_rustbuffer_alloc` FFI 分配） |
 | `src/gen_rust/jni_func.rs` | ✅ | `jni_func_name` / `jni_ctor_name` 工具函数 |
 | `src/gen_rust/callback_gen.rs` | ✅ | Askama：`JniCallbackTemplate` |
 
@@ -127,9 +127,9 @@ Java IR (src/pipeline/nodes.rs)
 |------|------|------|
 | `cargo_toml.rs` | ✅ | Cargo.toml 模板 |
 | `lib.rs` | ✅ | lib.rs 模板（JNI_OnLoad + 模块声明） |
-| `jni_bridge.rs` | ✅ | JNI→FFI 桥接函数模板 |
-| `jni_types.rs` | ✅ | JNI 类型转换函数模板（含 raw_to_jni_bytebuffer） |
-| `jni_callback.rs` | ✅ | 回调支持占位模板（Phase 6 待实现） |
+| `jni_bridge.rs` | ✅ | JNI→FFI 桥接（`#![allow(unused_unsafe)]`，`needs_env` 条件化 env 参数，`return_conv_unsafe` 区分） |
+| `jni_types.rs` | ✅ | JNI↔Rust 类型转换（RustBuffer 分配经 `uniffi_rustbuffer_alloc`） |
+| `jni_callback.rs` | ✅ | Callback Interface JNI 回调模板 |
 
 ### Stub 文件（待后续实现）
 
@@ -167,40 +167,64 @@ D:\packages\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\
 
 ## 下一步工作建议（按优先级）
 
-2. **RustBuffer ↔ JNI ByteBuffer 转换完善** — `jni_types.rs` 中 `jni_bytebuffer_to_rustbuffer` 需用 FFI 函数（`ffi_*_rustbuffer_alloc`）而非直接构造 RustBuffer
-3. **Callback Interface VTable 生成** — 双向 JNI 调用（VTable dispatch）
-4. **填充 stub 文件** — 按需激活 16 个 pipeline/gen_java stub 文件
-5. **端到端测试** — fixture crate + Java 代码 + Gradle 编译
-6. **实现 RustCallStatus 的完整 JNI 桥接** — jni_bridge.rs 中错误处理润色
+1. **Callback Interface VTable 生成** — 双向 JNI 调用（VTable dispatch），Java 端 `CallbackInterfaceImpl.java` 已有骨架
+2. **填充 stub 文件** — 按需激活 8 个 pipeline stub + 8 个 gen_java stub（共 16 个占位文件）
+3. **UniFFI fixture 测试集成** — 对 uniffi-rs 官方 fixture crate 运行生成器，验证覆盖所有类型
+4. **RustCallStatus 错误处理润色** — `jni_bridge.rs` 中完善错误码传播
 
 ---
 
 ## 关键记忆（跨会话传递）
 
-- **编译零错误零警告** — cargo check 和 clippy 均通过
+### 架构约定
 - **不要碰 modules.rs 的 convert_* 函数** — 已验证，所有 general IR 字段/变体名正确
+- **Pipeline 不可回退** — 坚持 initial IR → general IR → Java IR，不退回 ComponentInterface
 - **Module 是唯一用 `#[derive(Template)]` 的 Java 节点** — 其他 Java 类型通过 `{% include %}` 渲染
-- **gen_rust 全部改用 Askama** — 5 个 Rust 模板全部激活，原字符串拼接已删除
-- **RustFfiFunctionName 访问用 `.name()`** — Askama 模板中不能使用 `.0`
-- **Askama 不能使用 `|` 闭包语法** — 用 `{% match %}` / `{% when %}` 代替 `.map_or("void", \|t\| t\|java_type)`
-- **Java 模板 include 作用域** — 在 `{% match td %}{% when TypeDefinition::Object(obj) %}` 内 include 的模板可以直接访问 `obj`
-- **askama.toml 需要 `escaper = "none"`** — 对 java 和 rs 语法都需要
-- **方法体用 Rust 预计算** — `body_gen.rs` 生成函数/构造器/方法的完整 body，模板只用 `{{ func.body }}` 输出（避免 Askama 类型匹配问题）
-- **模板避免嵌套 match 含 filter** — Askama 的 `{% match ret|filter %}` 可能触发类型错误，改用预计算字符串
-- **Argument 含 `lower_code` 和 `native_expr`** — 在 `convert_argument()` 中调用 `body_gen` 预计算
+- **gen_rust 全部使用 Askama** — 5 个 Rust 模板激活，无字符串拼接
+
+### Askama 限制与对策
+- **`RustFfiFunctionName` 用 `.name()`** — 模板中不能 `.0`（Askama 不支持元组字段访问）
+- **不能用 `|` 闭包语法** — 用 `{% match %}` / `{% when %}` 代替 `.map_or("void", |t| ...)`
+- **避免嵌套 match 含 filter** — `{% match ret|filter %}` 可能触发类型错误
+- **方法体用 Rust 预计算** — `body_gen.rs` 生成 body，模板用 `{{ func.body }}`，避免 Askama 类型匹配问题
+- **⚠️ TODO: 减少预计算字符串** — 理想方案是模板自行处理类型匹配，受限于 tuple variant 和嵌套 match+filter 支持。未来可选：(1) 升级 Askama; (2) 自定义 `#[derive(Template)]` render; (3) 切换到 Tera/minijinja
+
+### Java 模板约定
+- **include 作用域** — `{% match td %}{% when TypeDefinition::Object(obj) %}` 内 include 的模板可直接访问 `obj`
+- **内嵌类用 `static`** — RustBuffer、RustBufferStream、HandleMap、Helpers 均为 `public static final class`
+- **`askama.toml` 需要 `escaper = "none"`** — 对 java 和 rs 语法都要
+
+### JNI 桥接
+- **FFI 调用 unsafe** — FFI 函数是 unsafe fn，模板中包装 `unsafe { }`
+- **零警告策略** — `jni_bridge.rs` 模板：`#![allow(unused_unsafe)]`；`needs_env` 条件化 `mut env` / `_env`；`return_conv_unsafe` 仅 buffer 返回包装 unsafe
+- **JNI 方法名下划线转义** — `_` → `_1` 以合 JNI 命名规范
+- **无符号类型参数收窄** — UInt8→`(byte)`、UInt16→`(short)`、UInt32→`(int)`
+- **String/Bytes lowering 返回 RustBuffer** — native 调用处 `.asByteBuffer()` 转换
+- **对象 free/clone 不过滤** — `_fn_free_` 和 `_fn_clone_` 正常生成桥接代码
+
+### RustBuffer 转换
+- **分配走 FFI** — `jni_bytebuffer_to_rustbuffer` 用 `uniffi::ffi::uniffi_rustbuffer_alloc` + `copy_nonoverlapping`，不直接用 `RustBuffer::from_vec()`
+- **`RustBuffer.data` 是 `pub(crate)`** — 写入用 `data_pointer() as *mut u8`
+
+### 类型转换（modules.rs）
+- **`TypeDefinition::Simple/Optional/Sequence/Map/Custom/External`** → `convert_type_definition` 返回 `Ok(None)`（不需要独立 Java 类）
+- **`FfiDefinition::Struct`** → `convert_ffi_definition` 返回 `Ok(None)`（VTable struct 由 callback 处理）
+- **`Argument` 含 `lower_code` 和 `native_expr`** — 在 `convert_argument()` 中通过 `body_gen` 预计算
 - **Record/Enum 有 `write_body`/`read_body`** — 序列化逻辑在 Rust 端预计算
-- **⚠️ TODO: 减少预计算字符串依赖** — 当前 `body_gen.rs` 将大量 Java 代码拼接为字符串再注入模板，导致代码风格割裂、难以维护。理想方案是 Askama 模板自行处理类型匹配和代码生成，但受限于 Askama 对 tuple variant (如 `TypeNode::Optional(Box<TypeNode>)`) 和嵌套 match+filter 的支持不足。未来可选方向：为 Java 节点实现自定义 `#[derive(Template)]` render 方法；
-- **使用案例位于 `examples/simple/`** — 含 cdylib + UDL，运行 pipeline 生成 Java + Rust 胶水代码，均通过编译验证
-- **TypeDefinition::Simple/Optional/Sequence/Map/Custom/External 在 convert_type_definition 中返回 `Ok(None)`** — 这些类型不需要独立 Java 类定义
-- **FfiDefinition::Struct 在 convert_ffi_definition 中返回 `Ok(None)`** — VTable struct 由 callback 代码生成处理
-- **模板渲染产物末尾换行符问题** — 通过 `normalize_content()` 函数修剪尾部空白，确保 TOML 文件和 Rust 文件末尾格式正确
-- **Cargo.toml 路径** — 主 crate 依赖路径使用正斜杠（TOML 兼容），Rust `use` 语句使用下划线形式的 crate 名
-- **jni_bridge.rs 已实现真实 FFI 调用** — JNI→FFI 桥接含 Handle、RustBuffer、ForeignBytes、原语类型转换，通过端到端 Java 测试验证
-- **JNI 方法名下划线转义** — `modules.rs` 中 `convert_ffi_definition()` 将 FFI 方法名之下划线 `_` 转为 `_1`，以合 JNI 命名规范
-- **Java 内嵌类用 `static`** — RustBuffer、RustBufferStream、HandleMap、Helpers 均声明为 `public static final class`，使可在静态上下文中引用
-- **无符号类型参数收窄** — `native_expr_for_arg()` 对 UInt8/UInt16/UInt32 生成显式强制转换 `(byte)/(short)/(int)`
-- **String/Bytes lowering 返回 RustBuffer** — `lower_code_for_arg()` 对 String/Bytes 返回 `RustBuffer` 类型（非 ByteBuffer），native 调用处用 `.asByteBuffer()` 转换
-- **对象 free/clone 桥接函数** — `_fn_free_` 和 `_fn_clone_` 不再被过滤，正常生成 JNI 桥接代码
-- **测试入口文件位于 `TestSimple.java`** — 含顶层函数、Calculator 对象、Record、Enum 之完整验证
-- **运行命令** — `java "-Djava.library.path=examples/simple/generated/rust-glue/target/debug" -cp "examples/simple/generated/java;." TestSimple`
-- **JNI bridge 零警告策略** — `jni_bridge.rs` 模板通过 `#![allow(unused_unsafe)]` 消减 remaining `unused_unsafe` 警告（FFI 调用在 rlib 链接下实际 unsafe 但 nightly 编译器误报）；`env` 参数通过 `needs_env` 字段条件化为 `mut env` 或 `_env`；返回值仅 buffer 转换包装 `unsafe { }`（`return_conv_unsafe` 判断）；arg 转换保持 `unsafe { }`（`jni_bytebuffer_to_*` / `Handle::from_raw` 确需 unsafe）
+
+### 产物格式
+- **末尾换行** — `normalize_content()` 修剪尾部空白，确保 TOML/Rust 文件末尾格式正确
+- **Cargo.toml 路径** — 主 crate 依赖路径用正斜杠（TOML 兼容），Rust `use` 用下划线形式 crate 名
+
+### 开发与测试
+- **使用案例**: `examples/simple/` — cdylib + UDL，运行 pipeline 生成胶水代码
+- **测试入口**: `TestSimple.java` — 顶层函数、Calculator 对象、Record、Enum 完整验证
+- **运行命令**:
+  ```bash
+  # 生成胶水代码
+  cargo run -- --source examples/simple/src/simple.udl --java-out-dir examples/simple/generated/java --rust-out-dir examples/simple/generated/rust-glue --config examples/simple/uniffi.toml --main-crate-path examples/simple
+  # 构建胶水库
+  cd examples/simple/generated/rust-glue && cargo build
+  # 运行 Java 测试
+  cd examples/simple && javac -cp "generated/java" TestSimple.java && java "-Djava.library.path=generated/rust-glue/target/debug" -cp "generated/java;." TestSimple
+  ```
