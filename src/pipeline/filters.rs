@@ -32,7 +32,8 @@ pub fn ffi_type_java_str(ty: &FfiType) -> String {
         FfiType::Struct(_) => "long".to_string(),
         FfiType::Callback(_) => "long".to_string(),
         FfiType::Reference(_) => "long".to_string(),
-        _ => "java.lang.Object".to_string(),
+        FfiType::Boolean => "boolean".to_string(),
+        FfiType::String | FfiType::Bytes | FfiType::ForeignBytes => "java.lang.Object".to_string(),
     }
 }
 
@@ -274,7 +275,7 @@ mod tests {
         assert_eq!(ffi_type(&FfiType::RustBuffer), "java.nio.ByteBuffer");
         assert_eq!(ffi_type(&FfiType::RustArc), "long");
         assert_eq!(ffi_type(&FfiType::String), "java.lang.Object");
-        assert_eq!(ffi_type(&FfiType::Boolean), "java.lang.Object");
+        assert_eq!(ffi_type(&FfiType::Boolean), "boolean");
     }
 
     fn ffi_type(ty: &FfiType) -> String {

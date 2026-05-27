@@ -84,6 +84,8 @@ pub fn generate_rust_glue(
     out_dir: &Utf8Path,
     crate_filter: Option<&str>,
     main_crate_path: Option<&Utf8Path>,
+    main_crate_name: Option<&str>,
+    dependency_overrides: &std::collections::HashMap<String, String>,
 ) -> Result<()> {
     fs::create_dir_all(out_dir)?;
 
@@ -110,11 +112,13 @@ pub fn generate_rust_glue(
         None => None,
     };
 
-    // Generate Cargo.toml (trim trailing whitespace to avoid TOML parse errors)
+    // Generate Cargo.toml
     let mut cargo_toml = cargo_toml::generate_cargo_toml(
         glue_crate_name,
         root,
         main_crate_rel.as_deref(),
+        main_crate_name,
+        dependency_overrides,
     );
     // Normalize line endings and trim trailing whitespace
     cargo_toml = cargo_toml.trim_end().to_string() + "\n";
@@ -425,4 +429,3 @@ fn normalize_content(content: &str) -> String {
         format!("{}\n", trimmed)
     }
 }
-

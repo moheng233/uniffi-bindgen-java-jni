@@ -1,6 +1,7 @@
 use anyhow::Result;
 use camino::Utf8Path;
 use indexmap::IndexMap;
+use std::collections::HashMap;
 use uniffi_bindgen::BindgenLoader;
 
 pub mod pipeline;
@@ -21,6 +22,11 @@ use crate::pipeline::nodes;
 /// - `crate_filter`: Optional crate name to filter
 /// - `config`: Java-specific configuration (package name, cdylib name, custom types)
 /// - `main_crate_path`: Optional path to the main crate for Rust glue Cargo.toml dependency
+/// - `main_crate_name`: Optional override for the main crate's package name in Cargo.toml.
+///   If not provided, derived from crate metadata.
+/// - `dependency_overrides`: Map of dependency name → TOML spec to override or add deps
+///   in the generated Cargo.toml. E.g. `{"uniffi".into() => "0.31".into()}`.
+#[allow(clippy::too_many_arguments)]
 pub fn generate_java_jni_bindings(
     loader: &BindgenLoader,
     source: &Utf8Path,
@@ -29,6 +35,8 @@ pub fn generate_java_jni_bindings(
     crate_filter: Option<&str>,
     config: &JavaConfig,
     main_crate_path: Option<&Utf8Path>,
+    main_crate_name: Option<&str>,
+    dependency_overrides: &HashMap<String, String>,
 ) -> Result<()> {
     // Phase 1: Load metadata and create the initial IR
     let metadata = loader.load_metadata(source)?;
@@ -50,7 +58,7 @@ pub fn generate_java_jni_bindings(
     crate::gen_java::generate_java_code(&java_root, java_out_dir, crate_filter)?;
 
     // Phase 5: Generate Rust JNI glue code
-    crate::gen_rust::generate_rust_glue(&java_root, rust_out_dir, crate_filter, main_crate_path)?;
+    crate::gen_rust::generate_rust_glue(&java_root, rust_out_dir, crate_filter, main_crate_path, main_crate_name, dependency_overrides)?;
 
     Ok(())
 }

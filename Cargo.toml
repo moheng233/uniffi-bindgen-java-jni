@@ -25,6 +25,11 @@ heck = "0.5.0"
 indexmap = "2.14.0"
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "1.1.2"
-uniffi_bindgen = { version = "0.31.1", default-features = false }
+uniffi_bindgen = "0.31.1"
 uniffi_internal_macros = "0.31.1"
 uniffi_pipeline = "0.31.1"
+
+[dev-dependencies]
+uniffi_testing = { git = "https://github.com/mozilla/uniffi-rs.git", tag = "v0.31.1" }
+uniffi-example-arithmetic = { git = "https://github.com/mozilla/uniffi-rs.git", tag = "v0.31.1" }
+uniffi-fixture-coverall = { git = "https://github.com/mozilla/uniffi-rs.git", tag = "v0.31.1" }

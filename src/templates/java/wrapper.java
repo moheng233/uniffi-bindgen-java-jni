@@ -35,8 +35,11 @@ public final class {{ name }} {
     {%- when FfiDefinition::RustFunction(func) %}
     private static native {% match func.return_type %}{% when Some with (ret) %}{{ ret|ffi_type_java }}{% when None %}void{% endmatch %} {{ func.name }}(
         {%- for arg in func.arguments -%}
-        {{ arg.ty|ffi_type_java }} {{ arg.name }}{% if !loop.last %}, {% endif %}
+        {{ arg.ty|ffi_type_java }} {{ arg.name }}{% if !loop.last || func.has_rust_call_status_arg %}, {% endif %}
         {%- endfor -%}
+        {%- if func.has_rust_call_status_arg -%}
+        Helpers.RustCallStatus rust_call_status
+        {%- endif -%}
     );
     {%- when FfiDefinition::CallbackFunction(cb) %}
     // Callback type: {{ cb.name }} (handled via JNI callback bridge)

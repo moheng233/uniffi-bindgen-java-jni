@@ -29,8 +29,15 @@ pub fn generate_function_body(
         }
     }
 
+    // Declare status variable (needed for any function with return type
+    // or throws, because uniffi FFI uses RustCallStatus for panic handling)
+    let needs_status = func.throws.is_some() || func.return_type.is_some();
+    if needs_status {
+        lines.push("Helpers.RustCallStatus status = new Helpers.RustCallStatus();".to_string());
+    }
+
     // Build the native call
-    let status_arg = if func.throws.is_some() { ", status" } else { "" };
+    let status_arg = if needs_status { ", status" } else { "" };
     let args_str: Vec<String> = func.arguments.iter()
         .map(|a| a.native_expr.clone())
         .collect();
@@ -61,6 +68,17 @@ pub fn generate_function_body(
                 }
                 let ty_name = type_name(ret);
                 lines.push(format!("return new {}(_resultHandle);", ty_name));
+            } else if is_boolean_type(ret) {
+                // Native returns byte for boolean; convert
+                lines.push(format!(
+                    "byte _raw = {}.{}({});",
+                    class_name, ffi_name, all_args
+                ));
+                if func.throws.is_some() {
+                    lines.push("Helpers.ensureSuccess(status);".to_string());
+                }
+                lines.push("boolean _result = _raw != 0;".to_string());
+                lines.push("return _result;".to_string());
             } else {
                 // Primitive or direct type
                 let jty = java_type_str(ret);
@@ -103,7 +121,14 @@ pub fn generate_constructor_body(
         }
     }
 
-    let status_arg = if ctor.throws.is_some() { ", status" } else { "" };
+    // Declare status variable (constructors always return a handle,
+    // so uniffi FFI always uses RustCallStatus)
+    let needs_status = true;
+    if needs_status {
+        lines.push("Helpers.RustCallStatus status = new Helpers.RustCallStatus();".to_string());
+    }
+
+    let status_arg = if needs_status { ", status" } else { "" };
     let args_str: Vec<String> = ctor.arguments.iter()
         .map(|a| a.native_expr.clone())
         .collect();
@@ -137,7 +162,14 @@ pub fn generate_method_body(
         }
     }
 
-    let status_arg = if method.throws.is_some() { ", status" } else { "" };
+    // Declare status variable (needed for any function with return type
+    // or throws, because uniffi FFI uses RustCallStatus for panic handling)
+    let needs_status = method.throws.is_some() || method.return_type.is_some();
+    if needs_status {
+        lines.push("Helpers.RustCallStatus status = new Helpers.RustCallStatus();".to_string());
+    }
+
+    let status_arg = if needs_status { ", status" } else { "" };
     let mut args_str: Vec<String> = method.arguments.iter()
         .map(|a| a.native_expr.clone())
         .collect();
@@ -169,6 +201,16 @@ pub fn generate_method_body(
                 }
                 let ty_name = type_name(ret);
                 lines.push(format!("return new {}(_resultHandle);", ty_name));
+            } else if is_boolean_type(ret) {
+                lines.push(format!(
+                    "byte _raw = {}.{}({});",
+                    class_name, ffi_name, all_args
+                ));
+                if method.throws.is_some() {
+                    lines.push("Helpers.ensureSuccess(status);".to_string());
+                }
+                lines.push("boolean _result = _raw != 0;".to_string());
+                lines.push("return _result;".to_string());
             } else {
                 let jty = java_type_str(ret);
                 lines.push(format!(
@@ -342,6 +384,10 @@ fn is_handle_type(ty: &TypeNode) -> bool {
     )
 }
 
+fn is_boolean_type(ty: &TypeNode) -> bool {
+    matches!(ty, TypeNode::Boolean)
+}
+
 fn type_name(ty: &TypeNode) -> String {
     match ty {
         TypeNode::Object { name, .. } => name.clone(),
@@ -394,7 +440,7 @@ fn format_args_with_status(args: &[String], status: &str) -> String {
 /// Generate write() body for a Record type.
 pub fn generate_record_write_body(rec: &Record) -> String {
     let mut lines = Vec::new();
-    
+
     // Estimate allocation size
     let mut alloc_parts = Vec::new();
     for field in &rec.fields {
@@ -405,36 +451,36 @@ pub fn generate_record_write_body(rec: &Record) -> String {
     lines.push("ByteBuffer _buf = ByteBuffer.allocateDirect(_size);".to_string());
     lines.push("_buf.order(java.nio.ByteOrder.BIG_ENDIAN);".to_string());
     lines.push("RustBufferStream _stream = new RustBufferStream(_buf);".to_string());
-    
+
     for field in &rec.fields {
         lines.push(write_field_expr(&field.ty, &field.java_name));
     }
-    
+
     lines.push("_buf.flip();".to_string());
     lines.push("return _buf;".to_string());
-    
+
     indent_lines(&lines, 8)
 }
 
 /// Generate read() body for a Record type.
 pub fn generate_record_read_body(rec: &Record) -> String {
     let mut lines = Vec::new();
-    
+
     lines.push("RustBufferStream _stream = new RustBufferStream(buf);".to_string());
-    
+
     let mut field_reads = Vec::new();
     for field in &rec.fields {
         let (ty_decl, read_expr) = read_field_expr(&field.ty);
         field_reads.push((field.java_name.clone(), ty_decl, read_expr));
     }
-    
+
     for (name, ty_decl, read_expr) in &field_reads {
         lines.push(format!("{} {} = {};", ty_decl, name, read_expr));
     }
-    
+
     let ctor_args: Vec<String> = field_reads.iter().map(|(n, _, _)| n.clone()).collect();
     lines.push(format!("return new {}({});", rec.java_name, ctor_args.join(", ")));
-    
+
     indent_lines(&lines, 8)
 }
 
@@ -506,7 +552,7 @@ fn read_field_expr(ty: &TypeNode) -> (String, String) {
 /// Generate write() body for an Enum type.
 pub fn generate_enum_write_body(e: &Enum) -> String {
     let mut lines = Vec::new();
-    
+
     if e.is_flat {
         // Flat enum: just write the variant index
         lines.push("// Switch on the enum variant".to_string());
@@ -529,7 +575,7 @@ pub fn generate_enum_write_body(e: &Enum) -> String {
             }
             variant_cases.push((variant.java_name.clone(), i, case_lines));
         }
-        
+
         lines.push("// Compute allocation size".to_string());
         lines.push("int _size = 4; // variant index".to_string());
         lines.push("// TODO: compute per-variant field sizes".to_string());
@@ -541,24 +587,24 @@ pub fn generate_enum_write_body(e: &Enum) -> String {
         lines.push("_buf.flip();".to_string());
         lines.push("return _buf;".to_string());
     }
-    
+
     indent_lines(&lines, 8)
 }
 
 /// Generate read() body for an Enum type.
 pub fn generate_enum_read_body(e: &Enum) -> String {
     let mut lines = Vec::new();
-    
+
     lines.push("RustBufferStream _stream = new RustBufferStream(buf);".to_string());
     lines.push("int _variantIdx = _stream.readInt32();".to_string());
-    
+
     for (i, variant) in e.variants.iter().enumerate() {
         if i == 0 {
             lines.push(format!("if (_variantIdx == {}) {{", i));
         } else {
             lines.push(format!("}} else if (_variantIdx == {}) {{", i));
         }
-        
+
         if variant.fields.is_empty() {
             lines.push(format!("    return new {}.{}();", e.java_name, variant.java_name));
         } else {
@@ -577,7 +623,7 @@ pub fn generate_enum_read_body(e: &Enum) -> String {
     lines.push("} else {".to_string());
     lines.push("    throw new RuntimeException(\"Unknown variant index: \" + _variantIdx);".to_string());
     lines.push("}".to_string());
-    
+
     indent_lines(&lines, 8)
 }
 
