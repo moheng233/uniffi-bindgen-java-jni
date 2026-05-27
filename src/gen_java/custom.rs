@@ -1,1 +1,0 @@
-// Custom type code generation.

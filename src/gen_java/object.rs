@@ -1,1 +1,0 @@
-// Object/Interface code generation.

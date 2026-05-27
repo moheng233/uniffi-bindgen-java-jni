@@ -13,7 +13,7 @@ uniffi-bindgen CLI
     ├── Pipeline: initial::Root → general::Root → Java::Root
     │
     ├── 输出 1: Java 代码 (--java-out-dir)
-    │   ├── 每个类型一个 .java 文件
+    │   ├── 单一 wrapper.java（{% include %} 集成所有类型）
     │   ├── native 方法声明 (System.loadLibrary)
     │   ├── ByteBuffer 类型转换
     │   └── 零外部依赖
@@ -47,35 +47,23 @@ src/
 │   ├── mod.rs                    # pipeline() 函数
 │   ├── context.rs                # Java 特定 Context
 │   ├── nodes.rs                  # Java IR 节点
-│   ├── modules.rs               # namespace → Module 映射
+│   ├── modules.rs               # namespace → Module 映射（核心转换逻辑）
 │   ├── config.rs                 # JavaConfig
+│   ├── body_gen.rs              # Java 方法体预计算（lower→native→lift）
+│   ├── filters.rs               # Askama 过滤器（ffi_type_java, java_type 等）
 │   ├── types.rs                  # Type 映射
-│   ├── jni_signature.rs         # JNI 方法签名生成
-│   ├── callables.rs             # 函数/方法/构造器
-│   ├── callback_interfaces.rs   # Callback Interface
-│   ├── enums.rs                  # Enum
-│   ├── records.rs               # Record
-│   ├── interfaces.rs            # Object/Interface
-│   └── default.rs               # 默认值
+│   └── jni_signature.rs         # JNI 方法签名生成
 ├── gen_java/                     # Java 端代码生成
-│   ├── mod.rs                    # JavaCodeOracle
-│   ├── primitives.rs
-│   ├── compounds.rs
-│   ├── object.rs
-│   ├── callback_interface.rs
-│   ├── enum_.rs
-│   ├── record.rs
-│   ├── custom.rs
-│   └── miscellany.rs
+│   └── mod.rs                    # generate_java_code() + JavaCodeOracle
 ├── gen_rust/                     # Rust 胶水端代码生成
-│   ├── mod.rs                    # RustCodeOracle
-│   ├── jni_func.rs              # JNI 函数签名
-│   ├── jni_types.rs             # 类型映射
-│   ├── callback_gen.rs          # 回调逻辑
-│   └── cargo_toml.rs            # Cargo.toml 生成
+│   ├── mod.rs                    # Rust 生成入口 + 类型映射辅助
+│   ├── jni_func.rs              # JNI 函数命名
+│   ├── jni_types.rs             # JNI 类型转换模板
+│   ├── callback_gen.rs          # Callback Interface 模板
+│   └── cargo_toml.rs            # Cargo.toml 模板
 ├── templates/
 │   ├── java/                     # Java 端模板 (13 个)
-│   │   ├── wrapper.java
+│   │   ├── wrapper.java          # 顶层模板，{% include %} 集成所有子模板
 │   │   ├── Function.java
 │   │   ├── Object.java
 │   │   ├── Interface.java
@@ -88,7 +76,7 @@ src/
 │   │   ├── RustBufferStream.java
 │   │   ├── HandleMap.java
 │   │   └── Helpers.java
-│   └── rust/                     # Rust 胶水库模板 (4 个)
+│   └── rust/                     # Rust 胶水库模板 (5 个)
 │       ├── cargo_toml.rs
 │       ├── lib.rs
 │       ├── jni_bridge.rs
@@ -114,27 +102,38 @@ src/
 **Step 5** — `pipeline/mod.rs`
 
 ```rust
-pub fn pipeline() -> Pipeline<initial::Root, Root> {
-    general::pipeline("java").pass::<Root, Context>(Context::default())
+pub fn general_pipeline() -> Pipeline<initial::Root, general::Root> {
+    uniffi_bindgen::pipeline::general::pipeline("java")
 }
 ```
 
+> 注：Java IR 转换通过手动函数 `convert_namespace()` 等完成，而非 Pipeline pass。
+
 **Step 6** — `pipeline/modules.rs`
 
-- general::Namespace → Java Module
+- general::Namespace → Java Module（核心转换逻辑，含 14 个单元测试）
 - 计算 Java imports + JNI native 方法签名列表 + Rust 胶水函数列表
+
+**Step 6a** — `pipeline/body_gen.rs`（实际实现中新增）
+
+- Java 方法体预计算（lower→native→lift），解决 Askama tuple variant 匹配限制
+
+**Step 6b** — `pipeline/filters.rs`（实际实现中新增）
+
+- 6 个 Askama 过滤器：`ffi_type_java`, `java_type`, `lower_code`, `native_arg`, `return_category`, `lift_code`
 
 ## Phase 3: 代码生成入口层
 
 **Step 7** — `gen_java/mod.rs`
 
+- `generate_java_code()` — 调用 Askama 渲染 `wrapper.java`
 - `JavaCodeOracle`: class_name→UpperCamelCase, fn_name/var_name→lowerCamelCase
-- 各类型 `CodeType` trait 实现
 
 **Step 8** — `gen_rust/mod.rs`
 
-- `RustCodeOracle`: JNI 函数命名 (`Java_{package}_{class}_{method}`)
-- JNI 类型签名生成, Cargo.toml 生成器
+- `generate_rust_glue()` — 协调 5 个 Rust 模板渲染
+- JNI 类型签名生成（`ffi_type_to_jni_name`, `ffi_type_to_ffi_rust_name`）
+- Cargo.toml 路径计算（`path_relative_to`）
 
 ## Phase 4: Java 端模板
 
@@ -296,7 +295,7 @@ uniffi = "..."
 | Java 版本 | Java 21 | record 类型等 |
 | RustBuffer | java.nio.ByteBuffer (direct) | 零拷贝 JNI 访问 |
 | Cargo 依赖 | 胶水库依赖主 crate + jni | 用户编译为 cdylib |
-| 文件结构 | 每个类型一个 Java 文件 | 标准风格 |
+| 文件结构 | 单一 wrapper.java + {% include %} 子模板 | 简化文件管理，所有类型在一个 Java 文件中 |
 | Async | 预留 TODO | 第一期同步 |
 | Callback | 完整支持 | 双向 JNI 调用 |
 | 配置 | package_name + cdylib_name + custom_types | |

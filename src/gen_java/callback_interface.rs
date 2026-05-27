@@ -1,1 +1,0 @@
-// Callback interface code generation.

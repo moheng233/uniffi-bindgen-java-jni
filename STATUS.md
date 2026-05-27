@@ -1,6 +1,6 @@
 # 项目状态 — uniffi-bindgen-java-jni
 
-**日期**: 2026-05-15
+**日期**: 2026-05-27
 **编译**: ✅ 零错误零警告（clippy clean）| **测试**: ✅ 45 个测试全部通过
 **Phase 1-7**: ✅ | **产物**: ✅ Java + Rust 胶水代码均零警告编译
 **端到端**: ✅ `examples/simple/` Java 测试全部通过
@@ -95,7 +95,9 @@ Java IR (src/pipeline/nodes.rs)
 | `src/pipeline/nodes.rs` | ✅ | Java IR 全部节点，`RustFfiFunctionName` 含 `.name()` 方法 |
 | `src/pipeline/modules.rs` | ✅ | 所有 `convert_*` 函数，general→Java 转换 + 14 个单元测试 |
 | `src/pipeline/filters.rs` | ✅ | `ffi_type_java` / `java_type` 等 6 个 Askama 过滤器 + 已提取 `_str` 纯函数 + 22 个单元测试 |
-| `src/pipeline/body_gen.rs` | ✅ | Java 方法体预计算（lower→native→lift），模板用 `{{ func.body }}` 输出 |
+| `src/pipeline/body_gen.rs` | ✅ | Java 方法体预计算（lower→native→lift），模板用 `{{ func.body }}` 输出 + 9 个单元测试 |
+| `src/pipeline/types.rs` | ✅ | `java_type_name()` / `java_boxed_type_name()` 类型名映射 |
+| `src/pipeline/jni_signature.rs` | ✅ | JNI 方法签名字符串生成（`(Ljava/lang/String;I)J` 格式） |
 | `src/gen_java/mod.rs` | ✅ | `generate_java_code()` + `JavaCodeOracle`，渲染 wrapper.java |
 | `src/gen_rust/mod.rs` | ✅ | 全部改用 Askama 模板渲染（含 `ffi_type_rust_name` 辅助函数） |
 | `src/gen_rust/cargo_toml.rs` | ✅ | Askama：`CargoTomlTemplate`（含 main_crate_path） |
@@ -131,11 +133,6 @@ Java IR (src/pipeline/nodes.rs)
 | `jni_types.rs` | ✅ | JNI↔Rust 类型转换（RustBuffer 分配经 `uniffi_rustbuffer_alloc`） |
 | `jni_callback.rs` | ✅ | VTable + Rust→JNI 回调函数（handle 管理、free/clone/method 回调、JNI 调用） |
 
-### Stub 文件（待后续实现）
-
-- `pipeline/callables, enums, records, interfaces, callback_interfaces, default, jni_signature, types`（8 个）
-- `gen_java/primitives, compounds, object, callback_interface, enum_, record, custom, miscellany`（8 个）
-
 ---
 
 ## 关键依赖版本
@@ -167,10 +164,78 @@ D:\packages\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\
 
 ## 下一步工作建议（按优先级）
 
-1. ~~**Callback Interface VTable 生成**~~ ✅ 已完成 — `jni_callback.rs` 模板生成 VTable + Rust→JNI 回调函数，`JNI_OnLoad` 自动注册
-2. **填充 stub 文件** — 按需激活 8 个 pipeline stub + 8 个 gen_java stub（共 16 个占位文件）
-3. **UniFFI fixture 测试集成** — 对 uniffi-rs 官方 fixture crate 运行生成器，验证覆盖所有类型
+1. **Record 改用 Java 21 record** — 当前 `Record.java` 模板生成普通 class + getter，应迁移到 Java 21 `record` 关键字，符合 PLAN.md 的 Java 21 决策
+2. **UniFFI fixture 测试集成** — 对 uniffi-rs 官方 fixture crate 运行生成器，验证覆盖所有类型（详见下方 §Fixture 测试集成计划）
+3. **减少 body_gen.rs 预计算字符串** — 当前方法体由 Rust 端拼装字符串注入模板。未来 Askama 升级或切换到 Tera/minijinja 后可改为模板原生类型匹配
 4. **RustCallStatus 错误处理润色** — `jni_bridge.rs` 中完善错误码传播
+
+---
+
+## Fixture 测试集成计划
+
+### 背景
+
+参考 [IronCoreLabs/uniffi-bindgen-java](https://github.com/IronCoreLabs/uniffi-bindgen-java) 的实现：
+通过 Cargo 的 `[dev-dependencies]` 以 `git` 依赖方式直接引用 uniffi-rs 的 fixture crate，
+无需克隆整个 uniffi-rs 仓库。Cargo 按需拉取源码，`cargo test` 一键运行全流程。
+
+### 架构
+
+```
+Cargo.toml                              # [dev-dependencies] git 引用 fixture crate
+│                                       # uniffi-fixture-coverall = { git = "...", tag = "v0.31.0" }
+├── tests/
+│   ├── fixture_tests.rs               # Rust 集成测试驱动（fixture_tests! 宏）
+│   └── scripts/                       # Java 测试文件
+│       ├── TestFixtureCoverall.java
+│       ├── TestCallbacks.java
+│       └── ...
+└── fixtures/                          # 仅放本项目自定义 fixture（如有）
+```
+
+每条测试流程（在 `tests/fixture_tests.rs` 中）：
+1. `uniffi_testing::UniFFITestHelper::new(fixture_name)` 构建 fixture cdylib
+2. 调用 `generate_java_jni_bindings()` 生成 Java + Rust 胶水
+3. `javac -Werror` 编译生成的 Java + 测试文件
+4. `java -Djava.library.path=...` 运行测试
+
+### 优先级 fixture（引用 uniffi-rs）
+
+| Fixture crate | 覆盖类型 | 优先级 | Java 测试文件 |
+|---------|---------|--------|--------------|
+| `uniffi-fixture-coverall` | 全部：Primitives, Optional, Record, Enum, Object, Trait, Callback, Error, Dict, Sequence, Map | P0 | `TestFixtureCoverall.java` |
+| `uniffi-example-callbacks` | Callback Interface | P0 | `TestCallbacks.java` |
+| `uniffi-example-arithmetic` | 顶层函数 | P1 | `TestArithmetic.java` |
+| `uniffi-example-geometry` | Object/Interface | P1 | `TestGeometry.java` |
+| `uniffi-example-rondpoint` | 复杂类型往返 | P1 | `TestRondpoint.java` |
+| `uniffi-example-sprites` | Object + 方法 | P1 | `TestSprites.java` |
+| `uniffi-fixture-time` | Timestamp/Duration | P1 | `TestChronological.java` |
+| `uniffi-example-custom-types` | 自定义类型 | P2 | `TestCustomTypes.java` |
+| `uniffi-fixture-ext-types` | 外部类型引用 | P2 | `TestImportedTypes.java` |
+| `uniffi-fixture-trait-methods` | Trait 方法 | P2 | `TestTraitMethods.java` |
+| `uniffi-fixture-proc-macro` | proc-macro 方式 | P2 | `TestProcMacro.java` |
+| `uniffi-fixture-rename` | 重命名 | P2 | `TestRename.java` |
+
+### 实施步骤
+
+| Step | 操作 | 说明 |
+|------|------|------|
+| 1 | 在 `Cargo.toml` 添加 `[dev-dependencies]` | `git` 引用 uniffi-rs fixture crate + `uniffi_testing`（tag = v0.31.1） |
+| 2 | 创建 `tests/fixture_tests.rs` | 参照 IronCoreLabs 的 `fixture_tests!` 宏模式 |
+| 3 | 创建 `tests/scripts/` 目录 + Java 测试文件 | 先从 `TestFixtureCoverall.java` 开始（参考 `test_coverall.kts`） |
+| 4 | 实现 `run_test()` 辅助函数 | build cdylib → generate → javac → java |
+| 5 | 逐步添加更多 fixture | 按 P0 → P1 → P2 优先级扩展
+
+### 与现有 examples/simple/ 的关系
+
+| 方面 | `examples/simple/` | fixture 集成 |
+|------|-------------------|-------------|
+| 目的 | 演示项目用法 | 回归测试套件 |
+| 类型覆盖 | 基本类型 ~60% | 完整覆盖 ~95% |
+| 运行方式 | 手动命令行 | `cargo test` 自动化 |
+| Error 类型 | 不支持 | 多种 Error 类型 |
+| External types | 不支持 | 支持 |
+| Trait methods | 不支持 | 支持 |
 
 ---
 
@@ -226,6 +291,7 @@ D:\packages\cargo\registry\src\index.crates.io-1949cf8c6b5b557f\
 ### 开发与测试
 - **使用案例**: `examples/simple/` — cdylib + UDL，运行 pipeline 生成胶水代码
 - **测试入口**: `TestSimple.java` — 顶层函数、Calculator 对象、Record、Enum 完整验证
+- **fixture 测试**（计划中）: `tests/fixture_tests.rs` — 集成测试驱动（`fixture_tests!` 宏）；`tests/scripts/Test*.java` — Java 测试文件；fixture crate 通过 `[dev-dependencies]` git 引用
 - **运行命令**:
   ```bash
   # 生成胶水代码

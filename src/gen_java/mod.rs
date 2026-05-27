@@ -10,15 +10,6 @@ use fs_err as fs;
 
 use crate::pipeline::nodes::*;
 
-mod primitives;
-mod compounds;
-mod object;
-mod callback_interface;
-mod enum_;
-mod record;
-mod custom;
-mod miscellany;
-
 /// Generate Java code from the Java IR root node.
 pub fn generate_java_code(
     root: &Root,
