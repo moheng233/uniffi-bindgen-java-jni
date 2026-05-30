@@ -79,11 +79,17 @@ Produces `target/debug/uniffi_example_simple.dll` (`.so` on Linux, `.dylib` on m
 
 ### 4) Compile and run Java tests
 
-```powershell
+```text
 cd examples/simple
 javac -cp generated/java -d . TestSimple.java
+
+# Windows PowerShell
 java "-Djava.library.path=generated/rust-glue/target/debug" `
-     -cp "generated/java;." TestSimple
+  -cp "generated/java;." TestSimple
+
+# Linux/macOS
+java -Djava.library.path=generated/rust-glue/target/debug \
+  -cp "generated/java:." TestSimple
 ```
 
 Sample output:

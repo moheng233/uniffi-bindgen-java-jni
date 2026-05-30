@@ -1,8 +1,9 @@
 // Test for uniffi-example-arithmetic fixture.
 // Validates basic top-level function bindings.
 //
-// Compile: javac -cp <generated-java-dir> tests/scripts/TestArithmetic.java
-// Run:     java -Djava.library.path=<rust-glue>/target/debug -cp <generated-java-dir>;tests/scripts TestArithmetic
+// Compile: javac -cp <generated-java-dir> -d <classes-dir> tests/scripts/TestArithmetic.java
+// Run (Windows):     java -Djava.library.path=<rust-glue>/target/debug -cp <generated-java-dir>;<classes-dir> TestArithmetic
+// Run (Linux/macOS): java -Djava.library.path=<rust-glue>/target/debug -cp <generated-java-dir>:<classes-dir> TestArithmetic
 
 import uniffi.fixtures.arithmetic;
 

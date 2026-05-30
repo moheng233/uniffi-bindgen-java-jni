@@ -98,9 +98,14 @@ fn run_test(fixture_package_name: &str, test_script: &str) -> Result<()> {
 
     // Compile Java test
     println!("Compiling Java test...");
+    let class_out_dir = out_dir.join("classes");
+    fs_err::create_dir_all(&class_out_dir)
+        .context("Failed to create Java class output directory")?;
     let status = Command::new("javac")
         .arg("-cp")
         .arg(java_out_dir.as_str())
+        .arg("-d")
+        .arg(class_out_dir.as_str())
         .arg(test_path.as_str())
         .status()
         .context("Failed to spawn javac")?;
@@ -112,8 +117,8 @@ fn run_test(fixture_package_name: &str, test_script: &str) -> Result<()> {
     println!("Running Java test...");
     let native_lib_dir = rust_out_dir.join("target").join("debug");
     let compiled_name = test_path.file_stem().unwrap();
-    let test_dir = test_path.parent().unwrap();
-    let classpath = format!("{};{}", java_out_dir, test_dir);
+    let classpath_sep = if cfg!(windows) { ';' } else { ':' };
+    let classpath = format!("{}{}{}", java_out_dir, classpath_sep, class_out_dir);
 
     let status = Command::new("java")
         .arg(format!("-Djava.library.path={}", native_lib_dir))
